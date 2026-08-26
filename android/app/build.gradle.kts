@@ -12,6 +12,9 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // Required by flutter_local_notifications for the daily reminder to
+        // work reliably on older Android versions.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     defaultConfig {
@@ -23,6 +26,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        multiDexEnabled = true
     }
 
     buildTypes {
@@ -42,4 +46,10 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Backs the desugaring flag above; needed for scheduled local notifications
+    // on Android versions older than the ones that ship java.time natively.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

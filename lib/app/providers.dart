@@ -1,12 +1,15 @@
 import 'dart:async';
 
+import 'package:cluckfall_heights/core/services/notification_service.dart';
 import 'package:cluckfall_heights/data/local/local_store.dart';
 import 'package:cluckfall_heights/data/repositories/backup_service.dart';
 import 'package:cluckfall_heights/data/repositories/object_profile_repository.dart';
 import 'package:cluckfall_heights/data/repositories/preferences_repository.dart';
 import 'package:cluckfall_heights/data/repositories/structure_repository.dart';
+import 'package:cluckfall_heights/data/repositories/weekly_summary_repository.dart';
 import 'package:cluckfall_heights/domain/insights/portfolio_insights.dart';
 import 'package:cluckfall_heights/domain/insights/shelf_favorites.dart';
+import 'package:cluckfall_heights/domain/insights/weekly_summary.dart';
 import 'package:cluckfall_heights/domain/objects/storage_object.dart';
 import 'package:cluckfall_heights/domain/settings/app_preferences.dart';
 import 'package:cluckfall_heights/domain/structures/structure.dart';
@@ -82,6 +85,41 @@ class PreferencesNotifier extends Notifier<AppPreferences> {
     if (state.onboardingCompleted) return Future<void>.value();
     return _update(state.copyWith(onboardingCompleted: true));
   }
+
+  /// Turns the daily reminder on or off, asking for OS permission and
+  /// (re)scheduling or cancelling the underlying local notification to match.
+  ///
+  /// Returns false if the user declined the OS permission prompt, in which
+  /// case the toggle is left off so the UI never claims to be on when nothing
+  /// will actually fire.
+  Future<bool> setDailyReminderEnabled(bool enabled) async {
+    final NotificationService notifications = ref.read(notificationServiceProvider);
+    if (!enabled) {
+      await notifications.cancel();
+      await _update(state.copyWith(dailyReminderEnabled: false));
+      return true;
+    }
+
+    final bool granted = await notifications.requestPermission();
+    if (!granted) return false;
+
+    await notifications.scheduleDaily(
+      hour: state.dailyReminderHour,
+      minute: state.dailyReminderMinute,
+    );
+    await _update(state.copyWith(dailyReminderEnabled: true));
+    return true;
+  }
+
+  /// Changes the reminder time, rescheduling immediately if it is currently on.
+  Future<void> setDailyReminderTime({required int hour, required int minute}) async {
+    await _update(
+      state.copyWith(dailyReminderHour: hour, dailyReminderMinute: minute),
+    );
+    if (state.dailyReminderEnabled) {
+      await ref.read(notificationServiceProvider).scheduleDaily(hour: hour, minute: minute);
+    }
+  }
 }
 
 final NotifierProvider<PreferencesNotifier, AppPreferences> preferencesProvider =
@@ -138,6 +176,67 @@ final Provider<PortfolioInsights> insightsProvider = Provider<PortfolioInsights>
 final Provider<Map<String, int>> objectPlacementCountsProvider = Provider<Map<String, int>>(
   (ref) => ShelfFavorites.placementCounts(ref.watch(structuresProvider)),
 );
+
+final Provider<WeeklySummaryRepository> weeklySummaryRepositoryProvider =
+    Provider<WeeklySummaryRepository>(
+      (ref) => WeeklySummaryRepository(ref.watch(localStoreProvider).requireValue),
+    );
+
+/// Roughly one capture a day of the counts behind [insightsProvider], kept
+/// only so the weekly summary has something to compare against. Never sent
+/// anywhere, and trimmed so the record can't grow without bound.
+class StabilityHistoryNotifier extends Notifier<List<StabilitySnapshot>> {
+  static const int _maxEntries = 60;
+  static const Duration _minGap = Duration(hours: 20);
+
+  @override
+  List<StabilitySnapshot> build() {
+    return ref
+        .watch(weeklySummaryRepositoryProvider)
+        .read()
+        .map(StabilitySnapshot.fromJson)
+        .toList();
+  }
+
+  /// Appends today's counts if the last capture was long enough ago. Cheap
+  /// to call on every app start: most of the time it is a no-op.
+  Future<void> recordIfDue(PortfolioInsights insights) async {
+    if (insights.isEmpty) return;
+
+    final DateTime now = DateTime.now();
+    if (state.isNotEmpty && now.difference(state.last.capturedAt) < _minGap) {
+      return;
+    }
+
+    final List<StabilitySnapshot> next = [
+      ...state,
+      StabilitySnapshot.of(insights, capturedAt: now),
+    ];
+    final List<StabilitySnapshot> trimmed = next.length > _maxEntries
+        ? next.sublist(next.length - _maxEntries)
+        : next;
+
+    state = trimmed;
+    await ref
+        .read(weeklySummaryRepositoryProvider)
+        .write(trimmed.map((snapshot) => snapshot.toJson()).toList());
+  }
+}
+
+final NotifierProvider<StabilityHistoryNotifier, List<StabilitySnapshot>>
+stabilityHistoryProvider = NotifierProvider<StabilityHistoryNotifier, List<StabilitySnapshot>>(
+  StabilityHistoryNotifier.new,
+);
+
+/// How the portfolio reads now compared to about a week ago, for the
+/// Insights screen.
+final Provider<WeeklyStabilitySummary> weeklyStabilitySummaryProvider =
+    Provider<WeeklyStabilitySummary>(
+      (ref) => WeeklyStabilitySummary.build(
+        insights: ref.watch(insightsProvider),
+        history: ref.watch(stabilityHistoryProvider),
+      ),
+    );
 
 /// The object library: user profiles followed by the bundled definitions.
 class ObjectLibraryNotifier extends Notifier<List<StorageObject>> {

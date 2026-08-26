@@ -2,7 +2,7 @@ name: cluckfall_heights
 description: "Cluckfall Heights - plan vertical storage visually and check how stable it is, fully offline."
 publish_to: 'none'
 
-version: 1.0.2+3
+version: 1.0.3+4
 
 environment:
   sdk: ^3.12.2
@@ -44,6 +44,13 @@ dependencies:
   # Install attribution only: tells AppsFlyer's dashboard whether an install
   # was organic or came from a tracked link. No in-app events are logged.
   appsflyer_sdk: ^6.18.1
+
+  # Powers the single optional daily reminder in Settings. Purely local
+  # scheduling, kept deliberately separate from any push-notification
+  # provider (see NotificationService for why).
+  flutter_local_notifications: ^22.3.0
+  timezone: ^0.11.1
+  flutter_timezone: ^5.1.0
 
 dev_dependencies:
   flutter_test:

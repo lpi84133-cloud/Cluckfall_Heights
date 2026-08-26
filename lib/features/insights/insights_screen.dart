@@ -10,6 +10,7 @@ import 'package:cluckfall_heights/core/widgets/status_badge.dart';
 import 'package:cluckfall_heights/domain/analysis/stability_status.dart';
 import 'package:cluckfall_heights/domain/insights/portfolio_insights.dart';
 import 'package:cluckfall_heights/domain/insights/storage_guide.dart';
+import 'package:cluckfall_heights/domain/insights/weekly_summary.dart';
 import 'package:cluckfall_heights/domain/settings/app_preferences.dart';
 import 'package:cluckfall_heights/domain/units/measurement_system.dart';
 import 'package:flutter/material.dart';
@@ -46,6 +47,8 @@ class InsightsScreen extends ConsumerWidget {
               const _NothingPlannedYet()
             else ...[
               _Totals(insights: insights, units: units),
+              const SizedBox(height: Insets.xl),
+              _WeeklySummary(summary: ref.watch(weeklyStabilitySummaryProvider)),
               const SizedBox(height: Insets.xl),
               _Capacity(insights: insights, units: units),
               const SizedBox(height: Insets.xl),
@@ -160,6 +163,76 @@ class _Totals extends StatelessWidget {
                     ),
                   ),
                 ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Weekly summary
+// ────────────────────────────────────────────────────────────────────────────
+
+class _WeeklySummary extends StatelessWidget {
+  const _WeeklySummary({required this.summary});
+
+  final WeeklyStabilitySummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppPalette palette = context.palette;
+    final Color ink = switch (summary.trend) {
+      StabilityTrend.improved => palette.stable,
+      StabilityTrend.worsened => palette.unstable,
+      StabilityTrend.steady => palette.textSecondary,
+    };
+    final IconData icon = switch (summary.trend) {
+      StabilityTrend.improved => LucideIcons.trendingUp,
+      StabilityTrend.worsened => LucideIcons.trendingDown,
+      StabilityTrend.steady => LucideIcons.minus,
+    };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SectionLabel('This week'),
+        const SizedBox(height: Insets.md),
+        ShelfCard(
+          accent: ink,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: ink.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(Insets.sm),
+                  child: Icon(icon, size: 18, color: ink),
+                ),
+              ),
+              const SizedBox(width: Insets.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      summary.headline,
+                      style: AppTypography.bodyStrong.copyWith(color: palette.textPrimary),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      summary.hasBaseline
+                          ? 'Compared with about a week ago.'
+                          : 'A week of daily checks builds the comparison automatically.',
+                      style: AppTypography.caption.copyWith(color: palette.textTertiary),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),

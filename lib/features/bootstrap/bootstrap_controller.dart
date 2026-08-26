@@ -128,6 +128,11 @@ class BootstrapController extends Notifier<BootstrapState> {
           for (final Structure structure in ref.read(structuresProvider)) {
             StabilityAnalyzer.analyse(structure);
           }
+          // Roughly once a day, so the weekly summary in Insights has
+          // something honest to compare against a week from now.
+          await ref
+              .read(stabilityHistoryProvider.notifier)
+              .recordIfDue(ref.read(insightsProvider));
         },
       ),
       _Step(

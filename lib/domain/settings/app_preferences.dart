@@ -33,6 +33,9 @@ class AppPreferences {
     this.onboardingCompleted = false,
     this.displayName,
     this.avatarPath,
+    this.dailyReminderEnabled = false,
+    this.dailyReminderHour = 19,
+    this.dailyReminderMinute = 0,
   });
 
   factory AppPreferences.fromJson(Map<String, dynamic> json) {
@@ -46,6 +49,11 @@ class AppPreferences {
       onboardingCompleted: json['onboardingCompleted'] as bool? ?? false,
       displayName: json['displayName'] as String?,
       avatarPath: json['avatarPath'] as String?,
+      // Off by default: a notification is something the user opts into, not
+      // something that starts firing the moment the app is installed.
+      dailyReminderEnabled: json['dailyReminderEnabled'] as bool? ?? false,
+      dailyReminderHour: json['dailyReminderHour'] as int? ?? 19,
+      dailyReminderMinute: json['dailyReminderMinute'] as int? ?? 0,
     );
   }
 
@@ -58,6 +66,17 @@ class AppPreferences {
 
   /// Absolute path to the cropped photo inside the app's private directory.
   final String? avatarPath;
+
+  /// Whether the single local daily reminder is turned on. This has nothing
+  /// to do with push notifications: it is a plain on-device alarm, off by
+  /// default, that the user must opt into here.
+  final bool dailyReminderEnabled;
+
+  /// Hour of day (0-23) the reminder fires at, in the device's local time.
+  final int dailyReminderHour;
+
+  /// Minute of the hour (0-59) the reminder fires at.
+  final int dailyReminderMinute;
 
   bool get hasAvatar => avatarPath != null && avatarPath!.isNotEmpty;
 
@@ -83,6 +102,9 @@ class AppPreferences {
     String? avatarPath,
     bool clearAvatar = false,
     bool clearDisplayName = false,
+    bool? dailyReminderEnabled,
+    int? dailyReminderHour,
+    int? dailyReminderMinute,
   }) {
     return AppPreferences(
       units: units ?? this.units,
@@ -92,6 +114,9 @@ class AppPreferences {
       onboardingCompleted: onboardingCompleted ?? this.onboardingCompleted,
       displayName: clearDisplayName ? null : displayName ?? this.displayName,
       avatarPath: clearAvatar ? null : avatarPath ?? this.avatarPath,
+      dailyReminderEnabled: dailyReminderEnabled ?? this.dailyReminderEnabled,
+      dailyReminderHour: dailyReminderHour ?? this.dailyReminderHour,
+      dailyReminderMinute: dailyReminderMinute ?? this.dailyReminderMinute,
     );
   }
 
@@ -103,5 +128,8 @@ class AppPreferences {
     'onboardingCompleted': onboardingCompleted,
     if (displayName != null) 'displayName': displayName,
     if (avatarPath != null) 'avatarPath': avatarPath,
+    'dailyReminderEnabled': dailyReminderEnabled,
+    'dailyReminderHour': dailyReminderHour,
+    'dailyReminderMinute': dailyReminderMinute,
   };
 }

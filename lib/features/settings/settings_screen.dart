@@ -17,8 +17,9 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 /// Settings that each change something the user can see.
 ///
-/// There is no notifications row, because the app sends none, and no account row,
-/// because there is no account. A switch that does nothing is worse than no switch.
+/// There is no account row, because there is no account. The one notification
+/// row is a single local, opt-in daily reminder — never a push notification,
+/// and off until the user turns it on and picks a time.
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
@@ -143,6 +144,35 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: Insets.xl),
 
+            const SectionLabel('Daily reminder'),
+            ShelfCard(
+              showTrim: false,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _Toggle(
+                    icon: LucideIcons.bellRing,
+                    title: 'Remind me once a day',
+                    subtitle: 'A single local nudge to check your shelves. Off by default.',
+                    value: preferences.dailyReminderEnabled,
+                    onChanged: (value) => _setReminderEnabled(context, ref, value),
+                  ),
+                  if (preferences.dailyReminderEnabled) ...[
+                    Divider(height: Insets.xl, color: palette.hairline),
+                    _ReminderTimeRow(
+                      hour: preferences.dailyReminderHour,
+                      minute: preferences.dailyReminderMinute,
+                      onPick: (time) => notifier.setDailyReminderTime(
+                        hour: time.hour,
+                        minute: time.minute,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: Insets.xl),
+
             const SectionLabel('Your data'),
             ShelfCard(
               showTrim: false,
@@ -232,6 +262,20 @@ class SettingsScreen extends ConsumerWidget {
     ref.invalidate(preferencesProvider);
     if (!context.mounted) return;
     context.go('/plans');
+  }
+
+  Future<void> _setReminderEnabled(BuildContext context, WidgetRef ref, bool value) async {
+    final bool applied = await ref.read(preferencesProvider.notifier).setDailyReminderEnabled(value);
+    if (applied || !context.mounted) return;
+    // The user declined the OS permission prompt: leave the switch off rather
+    // than showing a reminder that will never actually fire.
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Notifications are turned off for Cluckfall Heights in system settings.',
+        ),
+      ),
+    );
   }
 }
 
@@ -328,6 +372,53 @@ class _Toggle extends StatelessWidget {
         ),
         Switch(value: value, onChanged: onChanged),
       ],
+    );
+  }
+}
+
+class _ReminderTimeRow extends StatelessWidget {
+  const _ReminderTimeRow({
+    required this.hour,
+    required this.minute,
+    required this.onPick,
+  });
+
+  final int hour;
+  final int minute;
+  final ValueChanged<TimeOfDay> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppPalette palette = context.palette;
+    final TimeOfDay current = TimeOfDay(hour: hour, minute: minute);
+
+    return InkWell(
+      borderRadius: const BorderRadius.all(Radius.circular(Corners.sm)),
+      onTap: () async {
+        final TimeOfDay? picked = await showTimePicker(
+          context: context,
+          initialTime: current,
+        );
+        if (picked != null) onPick(picked);
+      },
+      child: Row(
+        children: [
+          Icon(LucideIcons.clock3, size: 19, color: palette.textSecondary),
+          const SizedBox(width: Insets.md),
+          Expanded(
+            child: Text(
+              'Time',
+              style: AppTypography.body.copyWith(color: palette.textPrimary),
+            ),
+          ),
+          Text(
+            current.format(context),
+            style: AppTypography.bodyStrong.copyWith(color: palette.accent),
+          ),
+          const SizedBox(width: Insets.sm),
+          Icon(LucideIcons.chevronRight, size: 18, color: palette.textTertiary),
+        ],
+      ),
     );
   }
 }

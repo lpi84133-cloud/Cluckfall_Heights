@@ -1,0 +1,195 @@
+{
+  "objects": {
+    "chicken": {
+      "1x": "124x220",
+      "2.0x": "248x440",
+      "3.0x": "372x660"
+    },
+    "egg": {
+      "1x": "157x220",
+      "2.0x": "314x440",
+      "3.0x": "471x660"
+    },
+    "coin": {
+      "1x": "172x220",
+      "2.0x": "345x440",
+      "3.0x": "517x660"
+    },
+    "storage_box": {
+      "1x": "220x209",
+      "2.0x": "440x417",
+      "3.0x": "660x626"
+    },
+    "wooden_shelf": {
+      "1x": "131x220",
+      "2.0x": "262x440",
+      "3.0x": "393x660"
+    },
+    "metal_shelf": {
+      "1x": "134x220",
+      "2.0x": "267x440",
+      "3.0x": "401x660"
+    },
+    "plastic_container": {
+      "1x": "220x201",
+      "2.0x": "440x401",
+      "3.0x": "660x602"
+    },
+    "cardboard_box": {
+      "1x": "220x212",
+      "2.0x": "440x424",
+      "3.0x": "660x637"
+    },
+    "bottle": {
+      "1x": "101x220",
+      "2.0x": "201x440",
+      "3.0x": "302x660"
+    },
+    "jar": {
+      "1x": "152x220",
+      "2.0x": "305x440",
+      "3.0x": "457x660"
+    },
+    "book": {
+      "1x": "131x220",
+      "2.0x": "262x440",
+      "3.0x": "392x660"
+    },
+    "tool_box": {
+      "1x": "220x212",
+      "2.0x": "440x424",
+      "3.0x": "660x637"
+    }
+  },
+  "backgrounds": {
+    "pantry": "768x1376",
+    "garage": "768x1376",
+    "storage_room": "768x1376",
+    "kitchen_cabinet": "768x1376"
+  },
+  "brand": {
+    "logo": {
+      "1x": "145x170",
+      "2.0x": "291x340",
+      "3.0x": "436x510"
+    },
+    "loading_portrait": "1080x2400",
+    "loading_landscape": "2400x1080"
+  },
+  "indicators": {
+    "stability_gauge": {
+      "1x": "62x200",
+      "2.0x": "123x400",
+      "3.0x": "185x600"
+    },
+    "stability_zones": {
+      "stable": {
+        "1x": "89x120",
+        "2.0x": "178x240",
+        "3.0x": "267x360",
+        "color": "#93CE36",
+        "source_rows": "71-546"
+      },
+      "caution": {
+        "1x": "120x115",
+        "2.0x": "240x229",
+        "3.0x": "360x344",
+        "color": "#FDC20D",
+        "source_rows": "562-893"
+      },
+      "unstable": {
+        "1x": "120x107",
+        "2.0x": "240x214",
+        "3.0x": "360x321",
+        "color": "#FF8408",
+        "source_rows": "914-1222"
+      }
+    },
+    "center_of_mass_marker": {
+      "1x": "91x240",
+      "2.0x": "182x480",
+      "3.0x": "274x720"
+    },
+    "center_of_mass_badge": {
+      "1x": "88x71",
+      "2.0x": "176x143",
+      "3.0x": "264x214"
+    },
+    "fragile_symbol": {
+      "1x": "120x111",
+      "2.0x": "240x222",
+      "3.0x": "360x333"
+    },
+    "weight_distribution_decor": {
+      "1x": "125x240",
+      "2.0x": "250x480",
+      "3.0x": "374x720"
+    }
+  },
+  "sounds": {
+    "button_tap": "16 KB",
+    "error": "16 KB",
+    "object_placement": "16 KB",
+    "object_removal": "16 KB",
+    "screen_open": "16 KB",
+    "stability_warning": "16 KB",
+    "structure_saved": "16 KB",
+    "successful_rearrangement": "16 KB"
+  },
+  "icon_ios": "1024x1024 (upscaled from 512x512)",
+  "icon_android": {
+    "background": "#F7E0BF",
+    "cabinet_in_source": [
+      128,
+      62,
+      383,
+      463
+    ],
+    "cabinet_on_canvas": "355x559",
+    "cabinet_half_diagonal": 331,
+    "guaranteed_radius": 341,
+    "plate_scaled_to": "713x713",
+    "offset": [
+      156,
+      146
+    ]
+  },
+  "palette": {
+    "coin": [
+      "#C07818",
+      "#D8A830",
+      "#C09018",
+      "#F0D878"
+    ],
+    "chicken": [
+      "#F0F0D8",
+      "#F0D8D8",
+      "#D8D8D8",
+      "#D8D8C0"
+    ],
+    "wood": [
+      "#C07830",
+      "#784818",
+      "#481800",
+      "#D89048"
+    ],
+    "metal": [
+      "#787878",
+      "#606060",
+      "#484848",
+      "#303030"
+    ],
+    "logo": [
+      "#000000",
+      "#484848",
+      "#F0F0D8",
+      "#303030"
+    ],
+    "icon": [
+      "#F0D8C0",
+      "#F0D8A8",
+      "#F0F0C0",
+      "#D8C0A8"
+    ]
+  }
+}

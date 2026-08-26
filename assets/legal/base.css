@@ -1,0 +1,93 @@
+/* Deliberately forced to black on white. These pages are read inside a WebView
+   that can sit on top of either app theme, and a dark-on-dark or grey-on-grey
+   result would be unreadable. */
+:root {
+  color-scheme: light;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 24px 20px 56px;
+  background: #ffffff;
+  color: #111111;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1 {
+  margin: 0 0 6px;
+  font-size: 27px;
+  line-height: 1.2;
+  letter-spacing: -0.4px;
+  color: #111111;
+}
+
+h2 {
+  margin: 32px 0 8px;
+  font-size: 19px;
+  line-height: 1.3;
+  color: #111111;
+}
+
+p,
+li {
+  color: #111111;
+}
+
+p {
+  margin: 0 0 14px;
+}
+
+ul {
+  margin: 0 0 14px;
+  padding-left: 22px;
+}
+
+li {
+  margin-bottom: 7px;
+}
+
+.updated {
+  margin: 0 0 28px;
+  font-size: 14px;
+  color: #4a4a4a;
+}
+
+.callout {
+  margin: 22px 0;
+  padding: 14px 16px;
+  border-left: 3px solid #f2b824;
+  background: #fbf6ea;
+  border-radius: 0 10px 10px 0;
+}
+
+.callout p:last-child {
+  margin-bottom: 0;
+}
+
+a {
+  color: #8a5a00;
+  text-decoration: underline;
+}
+
+code {
+  padding: 1px 5px;
+  background: #f2f2f2;
+  border-radius: 5px;
+  font-size: 14px;
+  color: #111111;
+}
+
+footer {
+  margin-top: 36px;
+  padding-top: 16px;
+  border-top: 1px solid #e3e3e3;
+  font-size: 14px;
+  color: #4a4a4a;
+}

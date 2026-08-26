@@ -5,11 +5,13 @@ import 'package:cluckfall_heights/core/theme/app_typography.dart';
 import 'package:cluckfall_heights/core/widgets/app_button.dart';
 import 'package:cluckfall_heights/core/widgets/page_furniture.dart';
 import 'package:cluckfall_heights/core/widgets/shelf_card.dart';
+import 'package:cluckfall_heights/core/widgets/stability_rail.dart';
 import 'package:cluckfall_heights/core/widgets/status_badge.dart';
 import 'package:cluckfall_heights/domain/analysis/rearrangement.dart';
 import 'package:cluckfall_heights/domain/analysis/rearrangement_planner.dart';
 import 'package:cluckfall_heights/domain/analysis/stability_analyzer.dart';
 import 'package:cluckfall_heights/domain/analysis/stability_report.dart';
+import 'package:cluckfall_heights/domain/analysis/stability_status.dart';
 import 'package:cluckfall_heights/features/builder/builder_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -80,6 +82,7 @@ class RearrangementScreen extends ConsumerWidget {
                   child: _SuggestionCard(
                     suggestion: suggestions[i],
                     rank: i,
+                    before: state.report,
                     outcome: StabilityAnalyzer.analyse(
                       RearrangementPlanner.apply(state.structure, suggestions[i]),
                     ),
@@ -111,12 +114,17 @@ class _SuggestionCard extends StatelessWidget {
   const _SuggestionCard({
     required this.suggestion,
     required this.rank,
+    required this.before,
     required this.outcome,
     required this.onApply,
   });
 
   final Rearrangement suggestion;
   final int rank;
+
+  /// The plan as it stands right now, so the card can show what changes
+  /// rather than only what the result would be.
+  final StabilityReport before;
   final StabilityReport outcome;
   final Future<void> Function() onApply;
 
@@ -159,15 +167,11 @@ class _SuggestionCard extends StatelessWidget {
             suggestion.reason,
             style: AppTypography.caption.copyWith(color: palette.textSecondary),
           ),
+          const SizedBox(height: Insets.lg),
+          _BeforeAfter(before: before.status, after: outcome.status),
           const SizedBox(height: Insets.md),
           Row(
             children: [
-              Text(
-                'Result',
-                style: AppTypography.overline.copyWith(color: palette.textTertiary),
-              ),
-              const SizedBox(width: Insets.md),
-              StatusBadge(status: outcome.status, compact: true),
               const Spacer(),
               AppButton(
                 label: 'Apply',
@@ -178,6 +182,67 @@ class _SuggestionCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Side-by-side gauges showing the plan's status right now against what it
+/// would become, so the benefit of a suggestion is seen rather than taken on
+/// faith from the reason text alone.
+class _BeforeAfter extends StatelessWidget {
+  const _BeforeAfter({required this.before, required this.after});
+
+  final StabilityStatus before;
+  final StabilityStatus after;
+
+  static const double _railHeight = 76;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppPalette palette = context.palette;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: palette.surfaceSunken,
+        borderRadius: const BorderRadius.all(Radius.circular(Corners.sm)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: Insets.md),
+        child: Row(
+          children: [
+            Expanded(child: _RailColumn(label: 'Now', status: before, height: _railHeight)),
+            Icon(LucideIcons.arrowRight, size: 16, color: palette.textTertiary),
+            Expanded(
+              child: _RailColumn(label: 'After', status: after, height: _railHeight),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RailColumn extends StatelessWidget {
+  const _RailColumn({required this.label, required this.status, required this.height});
+
+  final String label;
+  final StabilityStatus status;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppPalette palette = context.palette;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label.toUpperCase(),
+          style: AppTypography.overline.copyWith(color: palette.textTertiary),
+        ),
+        const SizedBox(height: Insets.xs),
+        StabilityRail(status: status, showLabel: false, height: height),
+      ],
     );
   }
 }

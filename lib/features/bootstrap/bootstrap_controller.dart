@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cluckfall_heights/app/providers.dart';
 import 'package:cluckfall_heights/core/assets/app_assets.dart';
+import 'package:cluckfall_heights/core/services/analytics_service.dart';
 import 'package:cluckfall_heights/core/services/feedback_service.dart';
 import 'package:cluckfall_heights/domain/analysis/stability_analyzer.dart';
 import 'package:cluckfall_heights/domain/structures/structure.dart';
@@ -66,6 +67,12 @@ class BootstrapController extends Notifier<BootstrapState> {
   /// widget layer needs a build context.
   Future<void> run({required Future<void> Function(String asset) precache}) async {
     state = const BootstrapState(label: 'Starting up');
+
+    // Reports install attribution in the background. It is deliberately not
+    // one of the weighted steps below: it is a fire-and-forget report to
+    // AppsFlyer, not work the user is waiting on, and it must never be able to
+    // hold up the loading bar or fail the whole startup sequence.
+    unawaited(ref.read(analyticsProvider).start());
 
     final List<_Step> steps = [
       _Step(

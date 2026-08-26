@@ -2,7 +2,7 @@ name: cluckfall_heights
 description: "Cluckfall Heights - plan vertical storage visually and check how stable it is, fully offline."
 publish_to: 'none'
 
-version: 1.0.1+2
+version: 1.0.2+3
 
 environment:
   sdk: ^3.12.2
@@ -40,6 +40,10 @@ dependencies:
   package_info_plus: ^10.2.1
   lucide_icons_flutter: ^3.1.17
   meta: ^1.18.0
+
+  # Install attribution only: tells AppsFlyer's dashboard whether an install
+  # was organic or came from a tracked link. No in-app events are logged.
+  appsflyer_sdk: ^6.18.1
 
 dev_dependencies:
   flutter_test:

@@ -5,7 +5,9 @@ import 'package:cluckfall_heights/core/theme/app_colors.dart';
 import 'package:cluckfall_heights/core/theme/app_metrics.dart';
 import 'package:cluckfall_heights/core/theme/app_typography.dart';
 import 'package:cluckfall_heights/core/widgets/app_chip.dart';
+import 'package:cluckfall_heights/core/widgets/favorite_badge.dart';
 import 'package:cluckfall_heights/core/widgets/page_furniture.dart';
+import 'package:cluckfall_heights/domain/insights/shelf_favorites.dart';
 import 'package:cluckfall_heights/domain/objects/object_traits.dart';
 import 'package:cluckfall_heights/domain/objects/storage_object.dart';
 import 'package:cluckfall_heights/domain/units/measurement_system.dart';
@@ -37,6 +39,7 @@ class _ObjectPickerSheetState extends ConsumerState<ObjectPickerSheet> {
     final List<StorageObject> library = ref.watch(objectLibraryProvider);
     final BuilderState state = ref.watch(builderProvider(widget.structureId));
     final MeasurementSystem units = ref.watch(preferencesProvider).units;
+    final Map<String, int> placementCounts = ref.watch(objectPlacementCountsProvider);
 
     final List<StorageObject> visible = _category == null
         ? library
@@ -117,6 +120,7 @@ class _ObjectPickerSheetState extends ConsumerState<ObjectPickerSheet> {
                 return _ObjectCard(
                   object: object,
                   units: units,
+                  placements: placementCounts[object.id] ?? 0,
                   onTap: () {
                     ref.read(feedbackProvider).objectPlaced();
                     ref.read(builderProvider(widget.structureId).notifier).place(object);
@@ -133,68 +137,84 @@ class _ObjectPickerSheetState extends ConsumerState<ObjectPickerSheet> {
 }
 
 class _ObjectCard extends StatelessWidget {
-  const _ObjectCard({required this.object, required this.units, required this.onTap});
+  const _ObjectCard({
+    required this.object,
+    required this.units,
+    required this.onTap,
+    this.placements = 0,
+  });
 
   final StorageObject object;
   final MeasurementSystem units;
   final VoidCallback onTap;
 
+  /// Times this profile has been placed across every saved plan, used to
+  /// decide whether it has earned a [FavoriteBadge].
+  final int placements;
+
   @override
   Widget build(BuildContext context) {
     final AppPalette palette = context.palette;
+    final ShelfFavoriteTier tier = ShelfFavorites.tierFor(placements);
 
     return GestureDetector(
       onTap: onTap,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: palette.surface,
-          borderRadius: Corners.card,
-          border: Border.all(color: palette.hairline),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(Insets.md),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Center(
-                  child: object.artAsset != null
-                      ? Image.asset(object.artAsset!, fit: BoxFit.contain)
-                      : Icon(LucideIcons.package, size: 34, color: palette.textTertiary),
-                ),
-              ),
-              const SizedBox(height: Insets.sm),
-              Text(
-                object.name,
-                style: AppTypography.caption.copyWith(color: palette.textPrimary),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 2),
-              Row(
+      child: Stack(
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: palette.surface,
+              borderRadius: Corners.card,
+              border: Border.all(color: palette.hairline),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(Insets.md),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    units.weight(object.weightKg),
-                    style: AppTypography.numeric.copyWith(
-                      fontSize: 12,
-                      color: palette.textSecondary,
+                  Expanded(
+                    child: Center(
+                      child: object.artAsset != null
+                          ? Image.asset(object.artAsset!, fit: BoxFit.contain)
+                          : Icon(LucideIcons.package, size: 34, color: palette.textTertiary),
                     ),
                   ),
-                  if (object.fragility.needsProtection) ...[
-                    const SizedBox(width: 5),
-                    Icon(
-                      LucideIcons.triangleAlert,
-                      size: 12,
-                      color: object.fragility == Fragility.fragile
-                          ? palette.unstable
-                          : palette.caution,
-                    ),
-                  ],
+                  const SizedBox(height: Insets.sm),
+                  Text(
+                    object.name,
+                    style: AppTypography.caption.copyWith(color: palette.textPrimary),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Text(
+                        units.weight(object.weightKg),
+                        style: AppTypography.numeric.copyWith(
+                          fontSize: 12,
+                          color: palette.textSecondary,
+                        ),
+                      ),
+                      if (object.fragility.needsProtection) ...[
+                        const SizedBox(width: 5),
+                        Icon(
+                          LucideIcons.triangleAlert,
+                          size: 12,
+                          color: object.fragility == Fragility.fragile
+                              ? palette.unstable
+                              : palette.caution,
+                        ),
+                      ],
+                    ],
+                  ),
                 ],
               ),
-            ],
+            ),
           ),
-        ),
+          if (tier.earned)
+            Positioned(top: Insets.sm, right: Insets.sm, child: FavoriteBadge(tier: tier)),
+        ],
       ),
     );
   }
@@ -251,6 +271,7 @@ class _ObjectLibraryScreenState extends ConsumerState<ObjectLibraryScreen> {
     final AppPalette palette = context.palette;
     final List<StorageObject> library = ref.watch(objectLibraryProvider);
     final MeasurementSystem units = ref.watch(preferencesProvider).units;
+    final Map<String, int> placementCounts = ref.watch(objectPlacementCountsProvider);
     final int custom = library.where((o) => !o.builtIn).length;
 
     final List<StorageObject> visible = _category == null
@@ -313,6 +334,7 @@ class _ObjectLibraryScreenState extends ConsumerState<ObjectLibraryScreen> {
               itemBuilder: (context, index) => _ObjectCard(
                 object: visible[index],
                 units: units,
+                placements: placementCounts[visible[index].id] ?? 0,
                 onTap: () => context.push('/library/${visible[index].id}'),
               ),
             ),

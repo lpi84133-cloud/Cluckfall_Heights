@@ -7,8 +7,10 @@ import 'package:cluckfall_heights/core/theme/app_typography.dart';
 import 'package:cluckfall_heights/core/utils/ids.dart';
 import 'package:cluckfall_heights/core/widgets/app_button.dart';
 import 'package:cluckfall_heights/core/widgets/app_chip.dart';
+import 'package:cluckfall_heights/core/widgets/favorite_badge.dart';
 import 'package:cluckfall_heights/core/widgets/page_furniture.dart';
 import 'package:cluckfall_heights/core/widgets/shelf_card.dart';
+import 'package:cluckfall_heights/domain/insights/shelf_favorites.dart';
 import 'package:cluckfall_heights/domain/objects/object_traits.dart';
 import 'package:cluckfall_heights/domain/objects/storage_object.dart';
 import 'package:cluckfall_heights/domain/units/measurement_system.dart';
@@ -143,6 +145,49 @@ class _ObjectEditorScreenState extends ConsumerState<ObjectEditorScreen> {
     context.pop();
   }
 
+  /// A row naming how many shelves carry this profile, plus the badge earned
+  /// so far. Empty for a profile that has never been placed: there is nothing
+  /// to report yet, and an explicit "0 times" reads as a complaint rather
+  /// than information.
+  List<Widget> _usageSummary(BuildContext context, String objectId) {
+    final int placements = ref.watch(objectPlacementCountsProvider)[objectId] ?? 0;
+    if (placements == 0) return const [];
+
+    final AppPalette palette = context.palette;
+    final ShelfFavoriteTier tier = ShelfFavorites.tierFor(placements);
+    final String placedText = placements == 1 ? 'Placed once so far.' : 'Placed $placements times so far.';
+
+    return [
+      ShelfCard(
+        accent: tier.earned ? palette.accent : palette.hairline,
+        showTrim: false,
+        padding: const EdgeInsets.all(Insets.md + 2),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    tier.earned ? tier.label : 'Not a shelf favourite yet',
+                    style: AppTypography.title.copyWith(color: palette.textPrimary),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    placedText,
+                    style: AppTypography.caption.copyWith(color: palette.textSecondary),
+                  ),
+                ],
+              ),
+            ),
+            if (tier.earned) FavoriteBadge(tier: tier),
+          ],
+        ),
+      ),
+      const SizedBox(height: Insets.xl),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final AppPalette palette = context.palette;
@@ -163,6 +208,8 @@ class _ObjectEditorScreenState extends ConsumerState<ObjectEditorScreen> {
             if (_source?.artAsset != null)
               Center(child: Image.asset(_source!.artAsset!, height: 110)),
             if (_source?.artAsset != null) const SizedBox(height: Insets.xl),
+
+            if (_source != null) ..._usageSummary(context, _source!.id),
 
             const SectionLabel('Name'),
             TextField(

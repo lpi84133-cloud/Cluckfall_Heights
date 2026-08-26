@@ -6,6 +6,7 @@ import 'package:cluckfall_heights/data/repositories/object_profile_repository.da
 import 'package:cluckfall_heights/data/repositories/preferences_repository.dart';
 import 'package:cluckfall_heights/data/repositories/structure_repository.dart';
 import 'package:cluckfall_heights/domain/insights/portfolio_insights.dart';
+import 'package:cluckfall_heights/domain/insights/shelf_favorites.dart';
 import 'package:cluckfall_heights/domain/objects/storage_object.dart';
 import 'package:cluckfall_heights/domain/settings/app_preferences.dart';
 import 'package:cluckfall_heights/domain/structures/structure.dart';
@@ -130,6 +131,12 @@ final NotifierProvider<StructuresNotifier, List<Structure>> structuresProvider =
 /// and nowhere else needs to know how the aggregation works.
 final Provider<PortfolioInsights> insightsProvider = Provider<PortfolioInsights>(
   (ref) => PortfolioInsights.from(ref.watch(structuresProvider)),
+);
+
+/// How many times each library profile has actually been placed, keyed by its
+/// id. Feeds the shelf-favourite badge on the library and picker cards.
+final Provider<Map<String, int>> objectPlacementCountsProvider = Provider<Map<String, int>>(
+  (ref) => ShelfFavorites.placementCounts(ref.watch(structuresProvider)),
 );
 
 /// The object library: user profiles followed by the bundled definitions.

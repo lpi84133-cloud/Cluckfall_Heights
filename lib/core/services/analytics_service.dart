@@ -32,12 +32,10 @@ class AnalyticsService {
   /// From the AppsFlyer dashboard for this app.
   static const String _devKey = 'PG6N5qRcCdbtsBJs7vTBre';
 
-  /// Apple's numeric App Store id, without the "id" prefix, from App Store
-  /// Connect once this app has a store listing. AppsFlyer's iOS SDK asserts
-  /// this looks like a real id (8-11 digits) in debug builds, so a placeholder
-  /// lives here rather than an empty string until the real one is known;
-  /// replace it as soon as the app is registered in the AppsFlyer dashboard.
-  static const String _iosAppId = '000000000';
+  /// Apple's numeric App Store id, without the "id" prefix, matching the
+  /// listing in App Store Connect and configured for this app in the
+  /// AppsFlyer dashboard.
+  static const String _iosAppId = '6802356905';
 
   bool _started = false;
 

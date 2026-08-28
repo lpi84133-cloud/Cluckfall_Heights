@@ -1,17 +1,12 @@
-# cluckfall_heights
+# Cluckfall Heights
 
-A new Flutter project.
+Cluckfall Heights is an offline planner for vertical storage. You draw a shelf
+or rack on a grid, place the objects you actually keep on it, and the app
+reports how stable the stack looks — top-heavy, well balanced, or at risk of
+tipping.
 
-## Getting Started
+Nothing is uploaded. Plans, photos, and measurements stay on this device.
 
-This project is a starting point for a Flutter application.
+Privacy policy: https://cluckfallheights.com/privacy-policy.html
 
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Support: https://cluckfallheights.com/support.html

@@ -1,9 +1,10 @@
 # Pinned rather than inferred, so the deployment target does not silently move
 # when the toolchain updates.
-platform :ios, '13.0'
+platform :ios, '15.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+install! 'cocoapods', :disable_input_output_paths => true
 
 project 'Runner', {
   'Debug' => :debug,
@@ -37,14 +38,18 @@ target 'Runner' do
   end
 end
 
+target 'NotificationService' do
+  use_frameworks!
+  platform :ios, '15.0'
+  pod 'Firebase/Messaging', '12.18.0'
+end
+
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
-
-    # audioplayers_darwin uses an API renamed in iOS 8 but still functional.
-    # The warning comes from Apple's own SDK and is outside this project's code.
-    # Suppress it so it does not pollute the build log.
     target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+      config.build_settings['ENABLE_BITCODE'] = 'NO'
       config.build_settings['SWIFT_SUPPRESS_WARNINGS'] = 'YES' if target.name == 'audioplayers_darwin'
     end
   end

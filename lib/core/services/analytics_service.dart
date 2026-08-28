@@ -1,4 +1,5 @@
 import 'package:appsflyer_sdk/appsflyer_sdk.dart';
+import 'package:cluckfall_heights/loft/config/loft_config.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -45,6 +46,9 @@ class AnalyticsService {
   Future<void> start() async {
     if (_started) return;
     _started = true;
+    // AppsflyerSdk is a process-wide singleton. Starting it here with
+    // advertising identifiers disabled would poison the gray-flow SDK.
+    if (LoftConfig.grayCredentialsReady) return;
 
     try {
       final AppsFlyerOptions options = AppsFlyerOptions(

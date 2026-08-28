@@ -41,9 +41,19 @@ dependencies:
   lucide_icons_flutter: ^3.1.17
   meta: ^1.18.0
 
-  # Install attribution only: tells AppsFlyer's dashboard whether an install
-  # was organic or came from a tracked link. No in-app events are logged.
+  # Install attribution (organic vs tracked) plus the dual-mode shell.
   appsflyer_sdk: ^6.18.1
+  app_tracking_transparency: ^2.0.6+1
+  firebase_core: ^4.11.0
+  firebase_messaging: ^16.4.0
+  firebase_app_check: ^0.4.5
+  # 7.1+ requires Xcode 26.1 for NWPath.isUltraConstrained.
+  connectivity_plus: '>=7.0.0 <7.1.0'
+  http: ^1.6.0
+  # Distinct from the sibling 12.3.0 pin; 12.x fights package_info_plus on win32.
+  device_info_plus: ^13.2.0
+  flutter_secure_storage: ^10.3.0
+  webview_flutter_wkwebview: ^3.22.0
 
   # Powers the single optional daily reminder in Settings. Purely local
   # scheduling, kept deliberately separate from any push-notification
@@ -60,6 +70,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  config:
+    enable-swift-package-manager: false
 
   assets:
     # Resolution variants live in 2.0x/ and 3.0x/ next to each base file and are
@@ -70,6 +82,7 @@ flutter:
     - assets/img/backgrounds/
     - assets/sounds/
     - assets/legal/
+    - assets/Cluckfall_Heights_APPLICATION_additional_assets/
 
   fonts:
     - family: Manrope

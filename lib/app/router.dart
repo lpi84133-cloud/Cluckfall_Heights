@@ -27,6 +27,8 @@ import 'package:go_router/go_router.dart';
 GoRouter createRouter() {
   return GoRouter(
     initialLocation: '/',
+    // OneLink / partner URLs must not become Flutter routes.
+    overridePlatformDefaultLocation: true,
     routes: [
       GoRoute(path: '/', builder: (_, _) => const LoadingScreen()),
       GoRoute(path: '/welcome', builder: (_, _) => const WelcomeScreen()),

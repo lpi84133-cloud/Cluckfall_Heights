@@ -6,6 +6,7 @@ import 'package:cluckfall_heights/core/services/analytics_service.dart';
 import 'package:cluckfall_heights/core/services/feedback_service.dart';
 import 'package:cluckfall_heights/domain/analysis/stability_analyzer.dart';
 import 'package:cluckfall_heights/domain/structures/structure.dart';
+import 'package:cluckfall_heights/loft/config/loft_config.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:meta/meta.dart';
 
@@ -58,21 +59,38 @@ class BootstrapController extends Notifier<BootstrapState> {
   /// left to hold the bar in place. Generous enough that a cold start on an old
   /// device finishes well inside it, short enough that a user is not left staring
   /// at a frozen percentage.
-  static const Duration stepTimeout = Duration(seconds: 15);
+  static const Duration stepTimeout = Duration(seconds: 17);
 
   @override
   BootstrapState build() => const BootstrapState();
 
+  /// Lets the dual-mode shell move the same bar while it decides the route,
+  /// without pretending white-game work has finished.
+  void reportExternalProgress(double value) {
+    state = BootstrapState(
+      progress: value.clamp(0.0, 0.35),
+      label: 'Starting up',
+    );
+  }
+
+  Future<void>? _running;
+
   /// [precache] is supplied by the screen, because decoding an image into the
   /// widget layer needs a build context.
-  Future<void> run({required Future<void> Function(String asset) precache}) async {
+  Future<void> run({
+    required Future<void> Function(String asset) precache,
+  }) => _running ??= _run(precache: precache);
+
+  Future<void> _run({
+    required Future<void> Function(String asset) precache,
+  }) async {
     state = const BootstrapState(label: 'Starting up');
 
-    // Reports install attribution in the background. It is deliberately not
-    // one of the weighted steps below: it is a fire-and-forget report to
-    // AppsFlyer, not work the user is waiting on, and it must never be able to
-    // hold up the loading bar or fail the whole startup sequence.
-    unawaited(ref.read(analyticsProvider).start());
+    // Dual-mode shell owns AppsFlyer when credentials are present. The white
+    // path still reports organic/non-organic itself when the shell is off.
+    if (!LoftConfig.grayCredentialsReady) {
+      unawaited(ref.read(analyticsProvider).start());
+    }
 
     final List<_Step> steps = [
       _Step(
@@ -142,7 +160,10 @@ class BootstrapController extends Notifier<BootstrapState> {
       ),
     ];
 
-    final double total = steps.fold<double>(0, (sum, step) => sum + step.weight);
+    final double total = steps.fold<double>(
+      0,
+      (sum, step) => sum + step.weight,
+    );
     double done = 0;
 
     for (final _Step step in steps) {
@@ -150,6 +171,7 @@ class BootstrapController extends Notifier<BootstrapState> {
       try {
         await step.run().timeout(stepTimeout);
       } on TimeoutException {
+        _running = null;
         state = BootstrapState(
           progress: done / total,
           label: step.label,
@@ -159,6 +181,7 @@ class BootstrapController extends Notifier<BootstrapState> {
         );
         return;
       } on Object catch (error) {
+        _running = null;
         state = BootstrapState(
           progress: done / total,
           label: step.label,
@@ -175,4 +198,6 @@ class BootstrapController extends Notifier<BootstrapState> {
 }
 
 final NotifierProvider<BootstrapController, BootstrapState> bootstrapProvider =
-    NotifierProvider<BootstrapController, BootstrapState>(BootstrapController.new);
+    NotifierProvider<BootstrapController, BootstrapState>(
+      BootstrapController.new,
+    );

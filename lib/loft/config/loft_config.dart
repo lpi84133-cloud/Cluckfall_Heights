@@ -14,8 +14,9 @@ abstract final class LoftConfig {
       'https://cluckfallheights.com/privacy-policy.html';
   static const String supportUrl = 'https://cluckfallheights.com/support.html';
 
-  /// Rotated off the common 3-day snooze window.
-  static const int pushSnoozeSeconds = 338411;
+  /// Skip on the notification permit deck hides it for exactly 3 days.
+  /// (Product spec — supersedes the anti-fingerprint rotation nudge.)
+  static const int pushSnoozeSeconds = 3 * 24 * 60 * 60;
 
   /// OneLink often arrives as Organic first; recheck via GCD after this pause.
   static const int organicRecheckLag = 11;
@@ -307,17 +308,8 @@ abstract final class LoftConfig {
   ];
   static const List<int> _safariVersion = <int>[122, 37, 23, 81];
   static const List<int> _safariTail = <int>[125, 45, 13, 72, 100];
-  static const List<int> _uaAppIdToken = <int>[42, 109, 73, 15, 49, 209];
-  static const List<int> _uaAppNameToken = <int>[
-    42,
-    109,
-    73,
-    8,
-    52,
-    147,
-    164,
-    146,
-  ];
+  // `appid/` / `appname/` UA suffix intentionally removed — partner
+  // identity travels off the UA via X-Partner-App-* request headers.
   static const List<int> _appNameToken = <int>[
     8,
     113,
@@ -349,8 +341,6 @@ abstract final class LoftConfig {
   static String get uaMobileToken => unveilBytes(_uaMobileToken);
   static String get safariVersion => unveilBytes(_safariVersion);
   static String get safariTail => unveilBytes(_safariTail);
-  static String get uaAppIdToken => unveilBytes(_uaAppIdToken);
-  static String get uaAppNameToken => unveilBytes(_uaAppNameToken);
   static String get appNameToken => unveilBytes(_appNameToken);
 
   static String get storeToken => 'id$iosStoreId';

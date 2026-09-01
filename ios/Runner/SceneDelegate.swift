@@ -2,64 +2,48 @@ import Flutter
 import UIKit
 import UserNotifications
 
+/// Cold-start push destination capture for the gray-flow shell.
+///
+/// Matches HenheavenDash: a single key, notification-tap only, no host
+/// filtering. Push URLs are backend-signed and go straight to the portal.
+/// URL schemes and Universal Links are left to the plugins (AppsFlyer's
+/// SDK collects OneLink attribution through its own hooks; those hosts must
+/// never become a WebView destination).
 class SceneDelegate: FlutterSceneDelegate {
-  static let launchRouteKey = "flutter.cfh_tap_path"
+  static let launchRouteKey = "flutter.cfh_cold_tap"
 
   override func scene(
     _ scene: UIScene,
     willConnectTo session: UISceneSession,
     options connectionOptions: UIScene.ConnectionOptions
   ) {
-    if let response = connectionOptions.notificationResponse {
-      Self.persistDestination(
-        Self.destination(inside: response.notification.request.content.userInfo)
-      )
-    }
-    if let url = connectionOptions.urlContexts.first?.url {
-      Self.persistDestination(url.absoluteString)
-    }
-    for activity in connectionOptions.userActivities {
-      if activity.activityType == NSUserActivityTypeBrowsingWeb,
-         let url = activity.webpageURL {
-        Self.persistDestination(url.absoluteString)
-      }
-    }
     super.scene(scene, willConnectTo: session, options: connectionOptions)
+
+    guard
+      let response = connectionOptions.notificationResponse
+    else { return }
+
+    Self.persistPush(from: response.notification.request.content.userInfo)
   }
 
-  override func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
-    if let url = URLContexts.first?.url {
-      Self.persistDestination(url.absoluteString)
-    }
-    super.scene(scene, openURLContexts: URLContexts)
-  }
-
-  override func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
-    if userActivity.activityType == NSUserActivityTypeBrowsingWeb,
-       let url = userActivity.webpageURL {
-      Self.persistDestination(url.absoluteString)
-    }
-    super.scene(scene, continue: userActivity)
-  }
-
-  private static func persistDestination(_ raw: String?) {
-    guard let raw, !raw.isEmpty else { return }
-    guard let url = URL(string: raw), let host = url.host?.lowercased() else { return }
-    // OneLink is attribution, not a WebView address.
-    if host.hasSuffix("onelink.me") { return }
-    guard url.scheme == "http" || url.scheme == "https" else { return }
+  /// Push URL is trusted end-to-end — write without filtering. It might live
+  /// on the brand's own domain when the backend routes through it. Called by
+  /// [CfhTapCatcher] as well, for warm/background taps that don't go through
+  /// `scene:willConnectTo:`.
+  static func persistPush(from userInfo: [AnyHashable: Any]) {
+    guard let raw = extractUrl(from: userInfo), !raw.isEmpty else { return }
     let defaults = UserDefaults.standard
     defaults.set(raw, forKey: launchRouteKey)
     defaults.synchronize()
     #if DEBUG
-    NSLog("[CFH.ROUTE] captured destination")
+    NSLog("[CFH.ROUTE] captured push destination")
     #endif
   }
 
-  private static func destination(
-    inside payload: [AnyHashable: Any]
+  private static func extractUrl(
+    from payload: [AnyHashable: Any]
   ) -> String? {
-    let candidates = ["deep_link", "target", "url", "deeplink", "link"]
+    let candidates = ["url", "link", "target", "deeplink", "deep_link"]
 
     func firstValue(in dictionary: [AnyHashable: Any]) -> String? {
       for candidate in candidates {
@@ -71,7 +55,10 @@ class SceneDelegate: FlutterSceneDelegate {
     }
 
     if let direct = firstValue(in: payload) { return direct }
-
+    if let aps = payload["aps"] as? [AnyHashable: Any],
+       let value = firstValue(in: aps) {
+      return value
+    }
     for container in ["payload", "data"] {
       if let nested = payload[container] as? [AnyHashable: Any],
          let value = firstValue(in: nested) {

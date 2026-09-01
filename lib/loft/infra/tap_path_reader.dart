@@ -2,16 +2,18 @@ import 'dart:io';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Cold-start push URL written by `SceneDelegate` into UserDefaults.
-/// The `flutter.` prefix is what SharedPreferences uses on iOS, so this
-/// Dart key and the Swift `launchRouteKey` must stay in lockstep.
+/// Cold-start push destination bridge.
+///
+/// SceneDelegate writes the push URL into UserDefaults under `flutter.cfh_cold_tap`;
+/// this reads it once and clears the slot. Matches HenheavenDash — a single
+/// slot, no host filter (push URLs are backend-signed, not attribution links).
 class TapPathReader {
-  static const String _dartKey = 'cfh_tap_path';
+  static const String _dartKey = 'cfh_cold_tap';
 
-  // Scene-Manifest race: FlutterEngine can reach `consume()` before
-  // `scene:willConnectToSession:` has written the tap URL. One empty
-  // read is not proof that SceneDelegate will stay silent. Short poll
-  // closes that window. See flutterfire#17991 / #18352.
+  /// Scene-Manifest race: FlutterEngine can reach `consume()` before
+  /// `scene:willConnectToSession:` has written the URL. One empty read is
+  /// not proof that SceneDelegate will stay silent. Short poll closes that
+  /// window. See flutterfire#17991 / #18352.
   static const int _passes = 9;
   static const Duration _gap = Duration(milliseconds: 45);
 

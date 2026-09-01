@@ -82,10 +82,26 @@ class BrandArt {
   const BrandArt._();
 
   static const String logo = 'assets/img/brand/logo.webp';
-  static const String loadingPortrait = 'assets/img/brand/loading_portrait.webp';
-  static const String loadingLandscape = 'assets/img/brand/loading_landscape.webp';
+  static const String loadingPortrait =
+      'assets/Cluckfall_Heights_APPLICATION_additional_assets/'
+      'Vertical_Loading_Screen.webp';
+  static const String loadingLandscape =
+      'assets/Cluckfall_Heights_APPLICATION_additional_assets/'
+      'Horizontal_Loading_Screen.webp';
+  static const String nowifiPortrait =
+      'assets/Cluckfall_Heights_APPLICATION_additional_assets/'
+      'Vertical_Nowifi_Screen.webp';
+  static const String nowifiLandscape =
+      'assets/Cluckfall_Heights_APPLICATION_additional_assets/'
+      'Horizontal_Nowifi_Screen.webp';
 
-  static const List<String> all = [logo, loadingPortrait, loadingLandscape];
+  static const List<String> all = [
+    logo,
+    loadingPortrait,
+    loadingLandscape,
+    nowifiPortrait,
+    nowifiLandscape,
+  ];
 }
 
 class SoundAsset {

@@ -31,45 +31,33 @@ class ProgressTrack extends StatelessWidget {
       value: '${(fraction * 100).round()}%',
       child: SizedBox(
         height: thickness,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final double filled = constraints.maxWidth * fraction;
-            return DecoratedBox(
-              decoration: BoxDecoration(
-                color: palette.railTrack,
-                borderRadius: BorderRadius.all(Radius.circular(thickness)),
-              ),
-              child: Stack(
-                children: [
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Container(
-                      width: filled,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.all(Radius.circular(thickness)),
-                        gradient: LinearGradient(
-                          colors: [palette.shelfEdge, palette.accent],
-                        ),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: palette.railTrack,
+            borderRadius: BorderRadius.all(Radius.circular(thickness)),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.all(Radius.circular(thickness)),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween<double>(end: fraction),
+              duration: const Duration(milliseconds: 260),
+              curve: Curves.easeOut,
+              builder: (context, animated, _) {
+                return FractionallySizedBox(
+                  alignment: Alignment.centerLeft,
+                  widthFactor: animated,
+                  heightFactor: 1,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [palette.shelfEdge, palette.accent],
                       ),
                     ),
                   ),
-                  if (showLeadingEdge && fraction > 0.02 && fraction < 0.999)
-                    Positioned(
-                      left: filled - thickness * 0.5,
-                      top: 0,
-                      bottom: 0,
-                      width: thickness * 0.5,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.55),
-                          borderRadius: BorderRadius.all(Radius.circular(thickness)),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            );
-          },
+                );
+              },
+            ),
+          ),
         ),
       ),
     );

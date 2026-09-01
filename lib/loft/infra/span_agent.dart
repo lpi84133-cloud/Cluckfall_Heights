@@ -34,19 +34,15 @@ class SpanAgent extends http.BaseClient {
     return components.join('.');
   }
 
-  // GAME THEME CATEGORY: slot — partner identity on UA (tokens encoded) and
-  // as X-Partner-App-Id / X-Partner-App-Name on the config POST.
-  // Suffix is appid/<numeric store id> appname/<AppName>, not the bundle id.
+  // Real Mobile Safari string only. Partner identity travels off the UA
+  // via X-Partner-App-Id / X-Partner-App-Name request headers, so no
+  // slot-game marker suffix ships in the binary or the wire UA.
   String _mobileSafari(String iosVersion) {
     final cpu = iosVersion.replaceAll('.', '_');
-    final base =
-        '${LoftConfig.uaProduct} ${LoftConfig.uaPlatformPrefix} $cpu '
+    return '${LoftConfig.uaProduct} ${LoftConfig.uaPlatformPrefix} $cpu '
         '${LoftConfig.uaPlatformSuffix} ${LoftConfig.uaEngine} '
         'Version/${LoftConfig.safariVersion} ${LoftConfig.uaMobileToken} '
         'Safari/${LoftConfig.safariTail}';
-    if (LoftConfig.uaAppIdToken.isEmpty) return base;
-    return '$base ${LoftConfig.uaAppIdToken}${LoftConfig.iosStoreId} '
-        '${LoftConfig.uaAppNameToken}${LoftConfig.appNameToken}';
   }
 
   String _fallback() => _mobileSafari('18.7');

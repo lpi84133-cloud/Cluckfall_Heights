@@ -55,8 +55,6 @@ void main() {
     'uaMobileToken': 'Mobile/15E148',
     'safariVersion': '18.7',
     'safariTail': '604.1',
-    'uaAppIdToken': 'appid/',
-    'uaAppNameToken': 'appname/',
     'appNameToken': 'CluckfallHeights',
     'oneLinkHost': 'cluckfallheights.onelink.me',
   };

@@ -12,6 +12,9 @@ class BeamHub {
 
   final LoftVault _vault;
   final bool enabled;
+  // Exposed so PermitDeck / LoadingScreen can await boot before asking
+  // permission — otherwise `_messaging` is null and the deck is skipped.
+  bool get isReady => _messaging != null;
   FirebaseMessaging? _messaging;
   Future<void>? _bootFuture;
   Future<bool>? _permissionFuture;
@@ -29,14 +32,21 @@ class BeamHub {
     final messaging = FirebaseMessaging.instance;
     _messaging = messaging;
 
-    // Drain Firebase's cached initial message so iOS marks it read. Do NOT
-    // stash the URL: cold-start taps arrive via SceneDelegate → TapPathReader.
-    // Stashing here made the portal reappear on a plain relaunch.
+    // Cold-start push tap redundancy: SceneDelegate is the primary path
+    // (writes UserDefaults synchronously from the OS callback), but Firebase
+    // also caches the tap in `getInitialMessage`. Stash it so nothing is lost
+    // if SceneDelegate ever misses the callback (e.g. delayed scene wiring).
+    // The pilot consumes the secure stash after ColdTapReader, so both slots
+    // are cleared and cannot resurrect a URL on a plain relaunch.
     try {
-      await messaging.getInitialMessage().timeout(
+      final initial = await messaging.getInitialMessage().timeout(
         const Duration(seconds: 4),
         onTimeout: () => null,
       );
+      if (initial != null) {
+        final url = _extract(initial.data);
+        if (url != null) await _vault.stashPushUrl(url);
+      }
     } catch (_) {}
 
     try {
@@ -51,9 +61,13 @@ class BeamHub {
       _token = value;
       onTokenChanged?.call(value);
     });
-    FirebaseMessaging.onMessageOpenedApp.listen((message) {
+    FirebaseMessaging.onMessageOpenedApp.listen((message) async {
       final url = _extract(message.data);
       if (url == null) return;
+      // Warm start: stash so a returning launch after the WebView is torn
+      // down still picks the URL up via [LoftVault.consumePushUrl]. If the
+      // WebView is already alive [onDestination] loads it in place.
+      await _vault.stashPushUrl(url);
       onDestination?.call(url);
     });
     await _waitForApns();

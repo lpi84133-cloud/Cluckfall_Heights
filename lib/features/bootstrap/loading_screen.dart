@@ -32,7 +32,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 class LoadingScreen extends ConsumerStatefulWidget {
   const LoadingScreen({super.key, this.initialProgress = 0});
 
-  /// Retry after no-wifi continues from the 35% ceiling instead of 0.
+  /// Retry after no-wifi resumes from the last visible fill instead of 0.
   final double initialProgress;
 
   @override
@@ -41,10 +41,15 @@ class LoadingScreen extends ConsumerStatefulWidget {
 
 class _LoadingScreenState extends ConsumerState<LoadingScreen>
     with SingleTickerProviderStateMixin {
-  static const double _ceiling = 0.35;
   static const Duration _holdAfterReady = Duration(milliseconds: 260);
   static const Duration _minimumVisible = Duration(seconds: 2);
 
+  /// Live target for the fill bar. The pilot pushes this forward at each
+  /// pipeline stage; a slow background creep keeps the bar visibly alive
+  /// between stages so the user never sees it freeze on a wifi probe.
+  double _gateTarget = 0;
+
+  /// Current animated fill, chases [_gateTarget] on the ticker.
   late double _displayed;
   late final Ticker _ticker;
   Duration _lastElapsed = Duration.zero;
@@ -57,7 +62,8 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
   @override
   void initState() {
     super.initState();
-    _displayed = widget.initialProgress.clamp(0.0, _ceiling);
+    _displayed = widget.initialProgress.clamp(0.0, 1.0);
+    _gateTarget = _displayed;
     _ticker = createTicker(_onTick)..start();
     _startedAt = DateTime.now();
     WidgetsBinding.instance.addPostFrameCallback((_) => _start());
@@ -71,13 +77,14 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
     super.dispose();
   }
 
-  /// While the verdict can still be no-wifi the bar may not pass 35%.
-  /// 100% is reserved for a known non-offline destination.
-  double get _target {
-    final dest = _destination;
-    if (!_grayOwnsBar) return _displayed;
-    if (dest == null || dest is QuietSpan) return _ceiling;
-    return 1.0;
+  void _bumpGate(double value) {
+    final clamped = value.clamp(0.0, 1.0);
+    if (clamped <= _gateTarget) return;
+    if (mounted) {
+      setState(() => _gateTarget = clamped);
+    } else {
+      _gateTarget = clamped;
+    }
   }
 
   void _onTick(Duration elapsed) {
@@ -94,9 +101,15 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
       return;
     }
 
-    final target = _target;
-    final rising = dest is NativeSpan || dest is PortalSpan;
-    final speed = rising ? 1.45 : 0.40;
+    // Slow background creep of the *target* between real pipeline events, so
+    // the bar keeps drifting up 1–2 % per second during ATT / AF / config
+    // instead of appearing frozen. Caps at 0.92 until a verdict comes in.
+    if (dest == null && _gateTarget < 0.92) {
+      _gateTarget = math.min(0.92, _gateTarget + 0.02 * dt);
+    }
+
+    final target = _gateTarget;
+    final speed = (dest is NativeSpan || dest is PortalSpan) ? 1.45 : 0.42;
     final next = math.min(target, _displayed + speed * dt);
 
     if ((next - _displayed).abs() > 0.0005) {
@@ -105,7 +118,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
       _displayed = target;
     }
 
-    if (rising && _displayed >= 0.995) {
+    if ((dest is NativeSpan || dest is PortalSpan) && _displayed >= 0.995) {
       if (_displayed != 1) setState(() => _displayed = 1);
       _tryLeaveGray();
     }
@@ -118,18 +131,19 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
       _grayOwnsBar = true;
       late final LoftDestination destination;
       try {
-        destination = await guide.decide(onProgress: (_) {});
+        destination = await guide.decide(onProgress: _bumpGate);
       } catch (_) {
         destination = guide.vault.route == SpanRoute.undecided
             ? const QuietSpan(returnToNative: false)
             : const NativeSpan();
       }
       if (!mounted) return;
-      if (destination is NativeSpan) {
-        unawaited(_warmWhiteAssets());
-      }
       if (destination is PortalSpan) {
         unawaited(_warmArts(PermitDeck.artAssets));
+      }
+      // On a real verdict jump the target to 1.0 so the bar can fill.
+      if (destination is NativeSpan || destination is PortalSpan) {
+        _bumpGate(1.0);
       }
       setState(() => _destination = destination);
       _tryLeaveGray();
@@ -169,7 +183,13 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
       return;
     }
     if (_displayed < 0.995) return;
-    if (dest is NativeSpan && !_whiteReady) return;
+    if (dest is NativeSpan) {
+      if (!_whiteStarted) {
+        unawaited(_warmWhiteAssets());
+        return;
+      }
+      if (!_whiteReady) return;
+    }
     _leaving = true;
     _ticker.stop();
     unawaited(_openAfterHold(dest));
@@ -208,8 +228,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
         MaterialPageRoute<void>(
           builder: (_) => QuietDeck(
             probe: guide.probe,
-            retryBuilder: (_) =>
-                const LoadingScreen(initialProgress: _ceiling),
+            retryBuilder: (_) => const LoadingScreen(initialProgress: 0.35),
           ),
         ),
         (_) => false,
@@ -230,6 +249,17 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
     );
 
     final NavigatorState nav = Navigator.of(context, rootNavigator: true);
+    // First launch under the `_firstDecision` path started `boot()` in the
+    // background, so `_messaging` may still be null right here. Wait for it
+    // to settle before asking the OS anything, otherwise
+    // `canOfferPermission()` returns false and the deck is silently skipped.
+    if (!guide.notifications.isReady) {
+      try {
+        await guide.notifications.boot().timeout(
+              const Duration(seconds: 3),
+            );
+      } catch (_) {}
+    }
     if (guide.vault.shouldShowPushInvite &&
         await guide.notifications.canOfferPermission()) {
       if (!mounted) return;
@@ -313,6 +343,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
         ? BootstrapState(
             progress: bar,
             label: _displayed >= 0.995 ? 'Ready' : 'Starting up',
+            finished: _displayed >= 0.995,
           )
         : state;
 
@@ -364,11 +395,11 @@ class _TallLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The portrait background already carries the app title, so we do not
+    // paint a second logo on top of it.
     return Column(
+      mainAxisAlignment: MainAxisAlignment.end,
       children: [
-        const Spacer(),
-        Image.asset(BrandArt.logo, width: 220),
-        const Spacer(),
         Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
@@ -395,6 +426,7 @@ class _WideLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Landscape background already carries the title; no logo overlay.
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
@@ -408,8 +440,6 @@ class _WideLayout extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Spacer(),
-              Image.asset(BrandArt.logo, width: 240),
-              const SizedBox(height: Insets.xxl),
               _Status(state: state, onRetry: onRetry),
             ],
           ),

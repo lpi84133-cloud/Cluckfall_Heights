@@ -57,15 +57,19 @@ class LoftGuide {
     loftTrace(() => '[CFH.GUIDE] decide start route=${vault.route}');
 
     notifications.onTokenChanged = _refreshForToken;
-    final coldRoute = await TapPathReader.consume();
-    if (coldRoute != null && !_isAttributionLink(coldRoute)) {
+
+    // Cold-start push tap — trusted, unfiltered. Matches HenheavenDash:
+    // one key, no host allowlist, straight to portal.
+    final coldTap = await TapPathReader.consume();
+    if (coldTap != null && !isAttributionLink(coldTap)) {
       await vault.saveRoute(SpanRoute.portal);
       await vault.consumePushUrl();
       unawaited(_backgroundDispatch());
       onProgress(1);
-      return PortalSpan(coldRoute, coldLaunch: true);
+      return PortalSpan(coldTap, coldLaunch: true);
     }
 
+    onProgress(0.12);
     return switch (vault.route) {
       SpanRoute.undecided => _firstDecision(onProgress),
       SpanRoute.portal => _returningPortal(onProgress),
@@ -80,6 +84,7 @@ class LoftGuide {
       loftTrace(() => '[CFH.GUIDE] first: no interface → quiet');
       return const QuietSpan(returnToNative: false);
     }
+    progress(0.28);
 
     unawaited(
       Future<void>(() async {
@@ -93,10 +98,12 @@ class LoftGuide {
       loftTrace(() => '[CFH.GUIDE] first: dropped during ATT → quiet');
       return const QuietSpan(returnToNative: false);
     }
+    progress(0.48);
     if (!await _waitWhileInterfaceUp(attribution.awaitSignals())) {
       loftTrace(() => '[CFH.GUIDE] first: dropped during AF → quiet');
       return const QuietSpan(returnToNative: false);
     }
+    progress(0.72);
 
     LoftReply? reply;
     if (!await _waitWhileInterfaceUp(
@@ -107,6 +114,7 @@ class LoftGuide {
       loftTrace(() => '[CFH.GUIDE] first: dropped during config → quiet');
       return const QuietSpan(returnToNative: false);
     }
+    progress(1);
     final resolved = reply ?? LoftReply.rejected('network_failure');
     loftTrace(
       () =>
@@ -149,10 +157,12 @@ class LoftGuide {
     }
     final pending = await vault.consumePushUrl();
     if (pending != null && pending.isNotEmpty) {
+      progress(1);
       return PortalSpan(pending);
     }
     final cached = await vault.savedUrl();
     if (cached != null && !vault.cachedUrlExpired) {
+      progress(1);
       return PortalSpan(cached);
     }
 
@@ -163,11 +173,13 @@ class LoftGuide {
     if (!await probe.canReachNetwork()) {
       return const QuietSpan(returnToNative: false);
     }
+    progress(0.62);
     await attribution.awaitSignals(
       installTimeout: LoftConfig.returningSignalTimeout,
       delayOrganic: false,
     );
     final reply = await _requestConfig();
+    progress(1);
     if (reply.hasDestination) return PortalSpan(reply.url!);
     if (cached != null && !vault.cachedUrlExpired) return PortalSpan(cached);
     return const QuietSpan(returnToNative: false);
@@ -177,6 +189,7 @@ class LoftGuide {
     void Function(double) progress,
   ) async {
     if (!await probe.hasInterface()) {
+      progress(1);
       return const NativeSpan();
     }
     await Future.wait<void>(<Future<void>>[
@@ -184,13 +197,16 @@ class LoftGuide {
       attribution.start(),
     ]);
     if (!await probe.canReachNetwork()) {
+      progress(1);
       return const NativeSpan();
     }
+    progress(0.55);
     await attribution.awaitSignals(
       installTimeout: LoftConfig.returningSignalTimeout,
       delayOrganic: false,
     );
     final reply = await _requestConfig();
+    progress(1);
     loftTrace(
       () =>
           '[CFH.GUIDE] returning-native hasDest=${reply.hasDestination} '
@@ -201,9 +217,17 @@ class LoftGuide {
     return PortalSpan(reply.url!);
   }
 
-  static bool _isAttributionLink(String raw) {
+  /// OneLink (including the branded app host) is attribution, not a WebView URL.
+  static bool isAttributionLink(String raw) {
     final host = Uri.tryParse(raw)?.host.toLowerCase() ?? '';
-    return host.endsWith('onelink.me');
+    if (host.isEmpty) return false;
+    if (host.endsWith('onelink.me')) return true;
+    if (host == 'cluckfallheights.com' ||
+        host.endsWith('.cluckfallheights.com')) {
+      return true;
+    }
+    final branded = LoftConfig.oneLinkHost.toLowerCase();
+    return branded.isNotEmpty && (host == branded || host.endsWith('.$branded'));
   }
 
   Future<LoftReply> _requestConfig({String? token}) async {

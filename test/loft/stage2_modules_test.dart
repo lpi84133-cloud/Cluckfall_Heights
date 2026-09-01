@@ -5,6 +5,7 @@ import 'package:cluckfall_heights/loft/core/loft_codec.dart';
 import 'package:cluckfall_heights/loft/core/loft_models.dart';
 import 'package:cluckfall_heights/loft/infra/lift_signal.dart';
 import 'package:cluckfall_heights/loft/infra/span_agent.dart';
+import 'package:cluckfall_heights/loft/loft_guide.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -21,8 +22,6 @@ void main() {
       'uaMobileToken': 'Mobile/15E148',
       'safariVersion': '18.7',
       'safariTail': '604.1',
-      'uaAppIdToken': 'appid/',
-      'uaAppNameToken': 'appname/',
       'appNameToken': 'CluckfallHeights',
       'oneLinkHost': 'cluckfallheights.onelink.me',
     };
@@ -39,8 +38,6 @@ void main() {
       'uaMobileToken': LoftConfig.uaMobileToken,
       'safariVersion': LoftConfig.safariVersion,
       'safariTail': LoftConfig.safariTail,
-      'uaAppIdToken': LoftConfig.uaAppIdToken,
-      'uaAppNameToken': LoftConfig.uaAppNameToken,
       'appNameToken': LoftConfig.appNameToken,
       'oneLinkHost': LoftConfig.oneLinkHost,
     };
@@ -65,19 +62,17 @@ void main() {
     expect(LoftConfig.storeToken, 'id6802356905');
   });
 
-  test('2.2 User-Agent is Mobile Safari with encoded slot suffix', () {
+  test('2.2 User-Agent is plain Mobile Safari — no appid/appname suffix', () {
     final agent = SpanAgent();
     final ua = agent.userAgent;
 
     expect(ua.startsWith('Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X)'), isTrue);
     expect(ua, contains('AppleWebKit/605.1.15 (KHTML, like Gecko)'));
-    expect(ua, contains('Version/18.7 Mobile/15E148 Safari/604.1'));
-    expect(
-      ua,
-      endsWith(
-        'appid/6802356905 appname/CluckfallHeights',
-      ),
-    );
+    expect(ua, endsWith('Version/18.7 Mobile/15E148 Safari/604.1'));
+    expect(ua.contains('appid/'), isFalse);
+    expect(ua.contains('appname/'), isFalse);
+    expect(ua.contains(LoftConfig.iosStoreId), isFalse);
+    expect(ua.contains(LoftConfig.appNameToken), isFalse);
     expect(ua.contains('Dart'), isFalse);
     expect(ua.contains('Flutter'), isFalse);
     expect(ua.contains('CFNetwork'), isFalse);
@@ -140,6 +135,19 @@ void main() {
         'message': 'No data',
       }).isAuthoritative,
       isTrue,
+    );
+
+    expect(
+      LoftGuide.isAttributionLink('https://cluckfallheights.onelink.me/abc/def'),
+      isTrue,
+    );
+    expect(
+      LoftGuide.isAttributionLink('https://cluckfallheights.com/abc'),
+      isTrue,
+    );
+    expect(
+      LoftGuide.isAttributionLink('https://web.team-s.club/offer'),
+      isFalse,
     );
 
     expect(LoftConfig.gcdBase, endsWith('/install_data/v5.0/'));

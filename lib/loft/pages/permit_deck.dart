@@ -45,23 +45,22 @@ class _PermitDeckState extends State<PermitDeck> {
   Future<void> _accept() async {
     if (_working) return;
     setState(() => _working = true);
-    final granted = await widget.notifications.askPermission();
-    if (!granted) await _snooze();
+    // Accept = the deck is done for good, whatever the OS decides. If the
+    // user later denies the system prompt we still don't come back.
+    await widget.vault.markPushInviteResolved();
+    await widget.notifications.askPermission();
     _continue();
   }
 
   Future<void> _skip() async {
     if (_working) return;
     setState(() => _working = true);
-    await _snooze();
-    _continue();
-  }
-
-  Future<void> _snooze() {
+    // Skip = hide for exactly [pushSnoozeSeconds] and show again after.
     final until =
         DateTime.now().millisecondsSinceEpoch ~/ 1000 +
         LoftConfig.pushSnoozeSeconds;
-    return widget.vault.snoozePushInvite(until);
+    await widget.vault.snoozePushInvite(until);
+    _continue();
   }
 
   void _continue() {

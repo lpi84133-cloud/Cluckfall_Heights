@@ -8,6 +8,7 @@ class LoftVault {
   static const String _expiryKey = 'cfh.loft.expiry';
   static const String _savedAtKey = 'cfh.loft.saved_at';
   static const String _inviteKey = 'cfh.loft.invite.after';
+  static const String _inviteResolvedKey = 'cfh.loft.invite.resolved';
   static const String _permissionKey = 'cfh.loft.push.allowed';
   static const String _osDeniedKey = 'cfh.loft.push.os_denied';
   static const String _savedUrlKey = 'cfh.loft.secure.destination';
@@ -81,13 +82,22 @@ class LoftVault {
 
   Future<void> markPushDeniedByOs() => _preferences.setBool(_osDeniedKey, true);
 
+  /// Accept once = never show again, regardless of what the OS did with the
+  /// prompt. Skip = come back exactly [_inviteKey] seconds later.
   bool get shouldShowPushInvite {
     if (pushAllowed || pushDeniedByOs) return false;
+    if (_preferences.getBool(_inviteResolvedKey) ?? false) return false;
     final after = _preferences.getInt(_inviteKey);
     return after == null ||
         DateTime.now().millisecondsSinceEpoch ~/ 1000 >= after;
   }
 
+  /// User tapped Skip: hide the deck until [epochSeconds].
   Future<void> snoozePushInvite(int epochSeconds) =>
       _preferences.setInt(_inviteKey, epochSeconds);
+
+  /// User tapped Accept — the deck is done for good, even if the OS
+  /// dialog was denied or a debug reset flips [pushAllowed] back to false.
+  Future<void> markPushInviteResolved() =>
+      _preferences.setBool(_inviteResolvedKey, true);
 }

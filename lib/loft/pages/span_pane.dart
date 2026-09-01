@@ -160,16 +160,14 @@ class _SpanPaneState extends State<SpanPane> with WidgetsBindingObserver {
   }
 
   Future<void> _consumePending() async {
-    final fromPush = await widget.vault.consumePushUrl();
-    final fromTap = await TapPathReader.consume();
-    final value = fromPush ?? fromTap;
-    final uri = value == null ? null : Uri.tryParse(value);
-    if (mounted &&
-        uri != null &&
-        uri.hasScheme &&
-        !(uri.host.toLowerCase().endsWith('onelink.me'))) {
-      await _controller.loadRequest(uri);
-    }
+    // Warm push stash (BeamHub.onMessageOpenedApp) wins; cold-tap stash from
+    // SceneDelegate is the fallback. Both are trusted, no host filter.
+    final value =
+        await widget.vault.consumePushUrl() ?? await TapPathReader.consume();
+    if (value == null) return;
+    final uri = Uri.tryParse(value);
+    if (!mounted || uri == null || !uri.hasScheme) return;
+    await _controller.loadRequest(uri);
   }
 
   NavigationDelegate _navigation() {
@@ -215,8 +213,10 @@ class _SpanPaneState extends State<SpanPane> with WidgetsBindingObserver {
       onNavigationRequest: (request) {
         final uri = Uri.tryParse(request.url);
         if (uri == null) return NavigationDecision.prevent;
-        if (uri.scheme == 'javascript') return NavigationDecision.prevent;
-        if (<String>{
+        // Anything WKWebView can render in place stays inside the shell.
+        // `about:blank` in particular must stay: partner landings often
+        // hop through it in an iframe before committing to the real URL.
+        if (const <String>{
           'http',
           'https',
           'about',
@@ -226,15 +226,11 @@ class _SpanPaneState extends State<SpanPane> with WidgetsBindingObserver {
           if (request.isMainFrame) _lastMainUrl = request.url;
           return NavigationDecision.navigate;
         }
-        if (<String>{
-          'tel',
-          'mailto',
-          'sms',
-          'whatsapp',
-          'tg',
-        }.contains(uri.scheme)) {
-          launchUrl(uri, mode: LaunchMode.externalApplication);
-        }
+        // Everything else — tel:, mailto:, sms:, whatsapp://, tg://,
+        // viber://, fb-messenger://, weixin://, line://, snssdk://,
+        // itms-apps://, plus one-off partner schemes — is handed off
+        // to whichever app owns it. Scheme-gate, no host allowlist.
+        unawaited(launchUrl(uri, mode: LaunchMode.externalApplication));
         return NavigationDecision.prevent;
       },
     );

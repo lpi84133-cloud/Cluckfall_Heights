@@ -1,0 +1,182 @@
+---
+description: First launch via OneLink then Wi-Fi off — route stays first, never native.
+alwaysApply: true
+---
+
+# First launch: OneLink → Loading → выкл. Wi‑Fi
+
+Это не теория. Канонический QA, из‑за которого недели ломали
+Beakstorm-Run и этот репозиторий. Не упрощай. Offline ≠ organic.
+
+Имена здесь: `SpanRoute` (`undecided`/`portal`/`native`, в prefs
+`open`/`span`/`shelf`), `QuietSpan` = no-wifi, `LoftGuide._firstDecision`,
+`hasInterface` / `canReachNetwork`, `LiftSignal.recycleForRetry`.
+
+## Канонический сценарий (делали десятки раз)
+
+1. **Удалить приложение.** Route сбрасывается в `undecided` / `open`.
+   `flutter run` поверх **не** чистит prefs — без удаления старый `span`
+   снова откроет серую.
+2. Открыть **по OneLink** (paid / non-organic клик).
+3. На экране **Loading** выключить Wi‑Fi (или радио целиком).
+4. Должен открыться **NO INTERNET**. Route в storage **остаётся**
+   `undecided` / `open`. Не белая, не WebView.
+5. Включить сеть → **Retry**.
+6. **Только тогда** гоняются ATT + AppsFlyer + config POST.
+7. Config вернул `url` → серый WebView, route = `portal` / `span`.
+8. Config авторитетно сказал «нет url» (обычно HTTP 404) → белая,
+   route = `native` / `shelf`.
+
+### Запрещено на шаге 4
+
+- открыть белую «ну раз нет сети, значит organic»;
+- записать route = `native` / `shelf`;
+- довести лоадер до 100% и потом показать no-wifi;
+- запустить AF SDK без сети и на Retry переиспользовать этот SDK;
+- открыть OneLink URL как WebView (`onelink.me` и брендированный
+  `cluckfallheights.com` — это атрибуция, не destination).
+
+Если route уже `native` — пользователь **навсегда белый** (пока
+returning-path не получит url и не сделает mode-flip). Одна ошибочная
+запись `native` на таймауте = потерянный paid юзер.
+
+## OneLink — не вход в серую
+
+Тап по OneLink **не** даёт url партнёра. Он только помечает установку
+как Non-organic в AppsFlyer. Серую открывает **только** ответ config.
+
+- Ключей два. `SceneDelegate.persistPush` пишет URL из push-payload в
+  `flutter.cfh_push_path` **без** фильтра — cold push доверенный
+  destination от бэкенда. `SceneDelegate.persistLink` пишет универсальные
+  ссылки / URL scheme в `flutter.cfh_tap_path` и отбрасывает
+  `onelink.me` и `cluckfallheights.com` — это атрибуция, не destination.
+- `LoftGuide.isAttributionLink` отбрасывает те же хосты, если URL
+  всё же дошёл до Dart: **не** `saveRoute(portal)`, а `_firstDecision`.
+- `FlutterDeepLinkingEnabled = false`, у `GoRouter`
+  `overridePlatformDefaultLocation: true` — иначе OneLink становится
+  Flutter-роутом 404.
+
+Cold-start **push** с настоящим partner url → сразу `portal`,
+`saveRoute(portal)`, one-shot `consume`. Это не OneLink.
+
+## Три состояния route (не два)
+
+Ключ `cfh.loft.route`. Нет ключа → `undecided`.
+
+| route        | prefs   | смысл              | коммитить наугад |
+|--------------|---------|--------------------|------------------|
+| `undecided`  | `open`  | ещё не решили      | НЕТ              |
+| `portal`     | `span`  | уже серый          | нет сети → no-wifi, НЕ белая |
+| `native`     | `shelf` | уже белый          | нет сети → белая |
+
+`QuietSpan` / Offline — **не** route. После Retry читаем тот же route.
+Если всё ещё `undecided` — `_firstDecision` с нуля.
+
+## Две проверки сети. Не путать.
+
+### A. `hasInterface()` — радио живое
+
+`connectivity_plus`: Wi‑Fi или cellular, не `none`. DNS **не** смотрим.
+
+**Где:** весь первый запуск (`route == undecided`).
+На лоадере юзер вырубает Wi‑Fi — интерфейс падает сразу.
+DNS (`lookup`) врёт: кэш, таймаут, ложные offline/online.
+
+### B. `canReachNetwork()` — интернет реально есть
+
+Сначала `hasInterface()`, потом DNS на `gstatic.com` + `cloudflare.com`
+(не google/icloud). Хотя бы один lookup успешен → true.
+
+**Где:** returning `portal` / `native` перед config POST;
+кнопка Retry на no-wifi.
+
+**На first launch `canReachNetwork()` для решения route НЕ использовать.**
+
+Параллельный `onConnectivityChanged` на Loading — **запрещён**.
+
+## `_firstDecision` — по шагам
+
+Перед всем: `attribution.recycleForRetry()`.
+Прошлый заход без сети мог оставить AF `{status: failure}`.
+Без recycle Retry шлёт пустой payload. ATT future **не** сбрасывать.
+
+На каждом шаге, если интерфейс умер → `QuietSpan`, `saveRoute` НЕ вызывать.
+
+```
+1. recycleForRetry()
+2. if (!hasInterface()) → QuietSpan, route остаётся undecided
+3. Параллельно boot() пушей (не блокирует решение)
+4. ATT, ПОКА идёт — poll hasInterface каждые 320ms
+   дроп → QuietSpan, undecided
+5. AF start + awaitSignals (organic ждёт organicRecheckLag = 11с, потом GCD)
+   тот же poll → дроп → QuietSpan, undecided
+6. config POST (тело = AF payload как есть, без подмены af_status)
+   тот же poll → дроп → QuietSpan, undecided
+7. Смотрим ответ
+```
+
+Клиент **не** решает «organic → белая» и **не** подставляет
+`af_status=Non-organic` (ни sideload, ни USB, ни «ну похоже paid»).
+Клиент шлёт payload. Сервер отвечает.
+
+```
+hasDestination → saveRoute(portal) → PortalSpan
+!isAuthoritative ИЛИ интерфейс уже упал → QuietSpan, undecided
+isAuthoritative && нет url → saveRoute(native) → NativeSpan
+```
+
+`isAuthoritative`:
+
+| reason / ответ                         | да? | first |
+|----------------------------------------|-----|-------|
+| HTTP 200, JSON                         | да  | url → portal, нет url → native |
+| `http_404`                             | да  | native |
+| `http_5xx` / другой `http_*`           | нет | QuietSpan, undecided |
+| `network_failure`                      | нет | QuietSpan, undecided |
+| `invalid_response`                     | нет | QuietSpan, undecided |
+| `credentials_unavailable`              | да  | native |
+
+Таймаут / 502 / обрыв **не** равны organic.
+
+## Лоадер
+
+Координатор `onProgress` игнорировать. Бар в `LoadingScreen`.
+
+- Пока destination неизвестен ИЛИ `QuietSpan` → потолок **35%**, ползём
+  ~0.40/с. На 35% сидим во время ATT/AF/config.
+- **100% только** Native или Portal.
+- Offline: бар НЕ идёт к 100%. Сразу no-wifi.
+- Никогда: 100% → потом no-wifi.
+- После 100% hold ~260ms, потом navigate.
+- Белые ассеты — **после** 100% бара, не в тот же бар.
+- Retry: `LoadingScreen(initialProgress: 0.35)`.
+- Retry жмёт `canReachNetwork()`. Нет сети → остаёмся, без текста
+  «всё ещё нет».
+
+## Returning (уже не first)
+
+- `portal` + нет интерфейса → no-wifi (не белая).
+- `portal` + кэш url жив → WebView без POST.
+- `native` + нет интерфейса → белая.
+- `native` + сеть + config дал url → mode-flip, `portal`.
+  Host-allowlist WebView **не** добавлять.
+
+## AF recycle
+
+`recycleForRetry()`: generation++, обнулить sdk / install / reopen /
+deeplink / startFuture, новые Completer. `_consentFuture` НЕ трогать.
+Коллбеки старого поколения игнорировать.
+
+## Если хоть один пункт красный — откатывай first-decision и бар
+
+Не чини «добавить ещё один listener».
+
+- [ ] delete → OneLink → на Loading выкл Wi‑Fi → no-wifi, не белая, не WebView
+- [ ] prefs: route всё ещё `open` / ключа нет
+- [ ] бар не был 100% перед no-wifi
+- [ ] вкл Wi‑Fi → Retry → лоадер с ~35%
+- [ ] non-organic → WebView, route `span`
+- [ ] без OneLink (organic) → после сети белая, route `shelf`
+- [ ] повторный portal без сети → no-wifi
+- [ ] повторный native без сети → белая
+- [ ] delete → сразу без сети (не OneLink) → no-wifi, не белая

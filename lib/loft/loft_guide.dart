@@ -6,6 +6,7 @@ import 'package:cluckfall_heights/loft/core/loft_models.dart';
 import 'package:cluckfall_heights/loft/core/loft_trace.dart';
 import 'package:cluckfall_heights/loft/infra/beam_hub.dart';
 import 'package:cluckfall_heights/loft/infra/lift_signal.dart';
+import 'package:cluckfall_heights/loft/infra/link_gate.dart';
 import 'package:cluckfall_heights/loft/infra/loft_post.dart';
 import 'package:cluckfall_heights/loft/infra/loft_vault.dart';
 import 'package:cluckfall_heights/loft/infra/span_agent.dart';
@@ -58,28 +59,24 @@ class LoftGuide {
 
     notifications.onTokenChanged = _refreshForToken;
 
-    // Cold-start push tap resolution runs in two passes because SceneDelegate
-    // and Firebase's launch-message plugin race each other on iOS:
-    //   1. `TapPathReader.consume()` polls the UserDefaults slot the native
-    //      SceneDelegate writes to. Fast when it wins, empty when the OS
-    //      routes the tap through FirebaseMessaging swizzling instead.
-    //   2. `notifications.consumeInitialTap()` drains FCM's cached launch
-    //      message. Non-null only on a real kill-launched-from-push run.
-    // Whichever wins, the URL goes straight to Portal and we do NOT fall
-    // back to `savedUrl()` — the pushed destination beats the cached start.
-    String? coldTap = await TapPathReader.consume();
-    if (coldTap == null || isAttributionLink(coldTap)) {
-      final fromFcm = await notifications.consumeInitialTap();
-      if (fromFcm != null && !isAttributionLink(fromFcm)) {
-        coldTap = fromFcm;
-      }
-    }
-    if (coldTap != null && !isAttributionLink(coldTap)) {
+    // First action, before any network / attribution / boot call: read the
+    // SceneDelegate cold-start slot. That slot is written only when the OS
+    // launched us from a notification tap; if it has content, the tap is
+    // authoritative for this launch and beats everything else — cache,
+    // config, prior route. The router marks the tap consumed so FCM's copy
+    // of the same launch message does not later stash it into the queue and
+    // resurrect it on the NEXT launch.
+    final coldTapRaw = await TapPathReader.consume();
+    final coldTap = coldTapRaw == null || isAttributionLink(coldTapRaw)
+        ? null
+        : LinkGate.admit(coldTapRaw);
+    if (coldTap != null) {
       await vault.saveRoute(SpanRoute.portal);
+      notifications.markLaunchTapConsumed();
       await vault.consumePushUrl();
       unawaited(_backgroundDispatch());
       onProgress(1);
-      return PortalSpan(coldTap, coldLaunch: true);
+      return PortalSpan(coldTap.toString(), coldLaunch: true);
     }
 
     onProgress(0.12);
@@ -169,31 +166,30 @@ class LoftGuide {
       return const QuietSpan(returnToNative: false);
     }
 
-    // Push URL wins over the cached start page. Order matters:
-    //   1. Warm/foreground stash written by [BeamHub.onMessageOpenedApp].
-    //   2. FCM launch-message (kill-tap that the SDK swizzled before the
-    //      SceneDelegate slot could commit).
-    // Only after both come up empty do we hand back the last known URL.
-    String? pending = await vault.consumePushUrl();
-    if (pending == null || pending.isEmpty) {
-      final fromFcm = await notifications.consumeInitialTap();
-      if (fromFcm != null && !isAttributionLink(fromFcm)) {
-        pending = fromFcm;
-        // Clear the stash [consumeInitialTap] just wrote so a subsequent
-        // returning launch does not resurrect the same URL.
-        await vault.consumePushUrl();
-      }
-    }
-    if (pending != null && pending.isNotEmpty) {
+    // Priority for the WebView route (per the routing brief):
+    //   queue → non-expired cache → config → expired cache → no-net.
+    //
+    // The queue is fed by three producers, all clearing on read:
+    //   * warm `onMessageOpenedApp` when no live SpanPane is registered,
+    //   * `warmupInitialTap()` — a fast one-shot drain of FCM's cached
+    //     cold-start launch message (skipped if the router already
+    //     consumed the SceneDelegate slot),
+    //   * `_boot()` — the same drain, only reached if the returning path
+    //     never got as far as [warmupInitialTap].
+    await notifications.warmupInitialTap();
+    final queued = LinkGate.admit(await vault.consumePushUrl());
+    if (queued != null && !isAttributionLink(queued.toString())) {
       await vault.saveRoute(SpanRoute.portal);
+      notifications.markLaunchTapConsumed();
       progress(1);
-      return PortalSpan(pending, coldLaunch: true);
+      return PortalSpan(queued.toString(), coldLaunch: true);
     }
 
-    final cached = await vault.savedUrl();
+    final cachedRaw = await vault.savedUrl();
+    final cached = LinkGate.admit(cachedRaw);
     if (cached != null && !vault.cachedUrlExpired) {
       progress(1);
-      return PortalSpan(cached);
+      return PortalSpan(cached.toString());
     }
 
     await Future.wait<void>(<Future<void>>[
@@ -210,8 +206,9 @@ class LoftGuide {
     );
     final reply = await _requestConfig();
     progress(1);
-    if (reply.hasDestination) return PortalSpan(reply.url!);
-    if (cached != null && !vault.cachedUrlExpired) return PortalSpan(cached);
+    final fresh = reply.hasDestination ? LinkGate.admit(reply.url) : null;
+    if (fresh != null) return PortalSpan(fresh.toString());
+    if (cached != null) return PortalSpan(cached.toString());
     return const QuietSpan(returnToNative: false);
   }
 

@@ -3,10 +3,10 @@ import 'dart:io';
 
 import 'package:cluckfall_heights/loft/config/loft_config.dart';
 import 'package:cluckfall_heights/loft/infra/beam_hub.dart';
+import 'package:cluckfall_heights/loft/infra/link_gate.dart';
 import 'package:cluckfall_heights/loft/infra/loft_vault.dart';
 import 'package:cluckfall_heights/loft/infra/span_agent.dart';
 import 'package:cluckfall_heights/loft/infra/span_probe.dart';
-import 'package:cluckfall_heights/loft/infra/tap_path_reader.dart';
 import 'package:cluckfall_heights/loft/pages/quiet_deck.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
@@ -41,12 +41,15 @@ class _SpanPaneState extends State<SpanPane> with WidgetsBindingObserver {
   late final WebViewController _controller;
   StreamSubscription<List<ConnectivityResult>>? _networkSubscription;
   bool _viewportReady = false;
-  bool _coldReloadIssued = false;
   bool _offlineShown = false;
   int _redirectAttempts = 0;
   String? _lastMainUrl;
   Timer? _metricsDebounce;
   Size? _lastMetricsSize;
+  Object? _destinationToken;
+  bool _firstMainLoadStarted = false;
+  bool _firstMainLoadRetried = false;
+  bool _emptyDocReloadIssued = false;
 
   @override
   void initState() {
@@ -81,37 +84,52 @@ class _SpanPaneState extends State<SpanPane> with WidgetsBindingObserver {
           .setAllowsBackForwardNavigationGestures(true);
     }
 
-    widget.notifications.onDestination = (url) {
-      final uri = Uri.tryParse(url);
-      if (mounted && uri != null && uri.hasScheme) {
-        _controller.loadRequest(uri);
-      }
-    };
+    // Owner-scoped callback: BeamHub only releases it if we are still the
+    // registered listener at dispose time. Prevents a newer SpanPane from
+    // having its callback wiped by a stale one that is unmounting.
+    _destinationToken = widget.notifications.registerOnDestination(
+      _onWarmDestination,
+    );
     _networkSubscription = widget.probe.changes.listen((states) {
       if (states.every((state) => state == ConnectivityResult.none)) {
         unawaited(_goOffline());
       }
     });
 
+    final initialUri = LinkGate.admit(widget.url);
+    if (initialUri == null) {
+      // Constructor URL didn't pass the gate — nothing safe to load. The
+      // returning-portal fallback will hit no-net rather than open blank.
+      unawaited(_goOffline());
+      return;
+    }
+
     if (widget.coldLaunch) {
-      _settleColdViewport();
+      _settleColdViewport(initialUri);
     } else {
       _viewportReady = true;
-      _controller.loadRequest(Uri.parse(widget.url));
+      _controller.loadRequest(initialUri);
     }
     WidgetsBinding.instance.addPostFrameCallback((_) => _consumePending());
+  }
+
+  void _onWarmDestination(String url) {
+    if (!mounted) return;
+    final uri = LinkGate.admit(url);
+    if (uri == null) return;
+    _controller.loadRequest(uri);
   }
 
   void _enterImmersive() {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
 
-  Future<void> _settleColdViewport() async {
+  Future<void> _settleColdViewport(Uri initial) async {
     _enterImmersive();
     await Future<void>.delayed(LoftConfig.coldViewportSettle);
     if (!mounted) return;
     setState(() => _viewportReady = true);
-    await _controller.loadRequest(Uri.parse(widget.url));
+    await _controller.loadRequest(initial);
   }
 
   @override
@@ -160,13 +178,13 @@ class _SpanPaneState extends State<SpanPane> with WidgetsBindingObserver {
   }
 
   Future<void> _consumePending() async {
-    // Warm push stash (BeamHub.onMessageOpenedApp) wins; cold-tap stash from
-    // SceneDelegate is the fallback. Both are trusted, no host filter.
-    final value =
-        await widget.vault.consumePushUrl() ?? await TapPathReader.consume();
+    // Warm queue (BeamHub.onMessageOpenedApp stashes here whenever no live
+    // callback is registered). Read on appear AND on foreground resume so a
+    // tap that arrived while we were mounting is still honoured.
+    final value = await widget.vault.consumePushUrl();
     if (value == null) return;
-    final uri = Uri.tryParse(value);
-    if (!mounted || uri == null || !uri.hasScheme) return;
+    final uri = LinkGate.admit(value);
+    if (!mounted || uri == null) return;
     await _controller.loadRequest(uri);
   }
 
@@ -174,6 +192,7 @@ class _SpanPaneState extends State<SpanPane> with WidgetsBindingObserver {
     return NavigationDelegate(
       onPageStarted: (url) {
         _lastMainUrl = url;
+        _firstMainLoadStarted = true;
       },
       onPageFinished: (_) {
         _redirectAttempts = 0;
@@ -186,14 +205,33 @@ class _SpanPaneState extends State<SpanPane> with WidgetsBindingObserver {
             'window.visualViewport?.dispatchEvent(new Event("resize"));',
           );
           _installShellBundle();
-          if (widget.coldLaunch && !_coldReloadIssued) {
-            _coldReloadIssued = true;
-            await _controller.reload();
+          // Push URLs are often one-shot (session token consumed on first
+          // GET). An unconditional reload sends the WebView to the partner's
+          // start page. Reload only when the document is literally empty.
+          if (widget.coldLaunch && !_emptyDocReloadIssued) {
+            await _reloadIfDocumentEmpty();
           }
         });
       },
       onWebResourceError: (error) {
-        if (error.errorCode == -999) return;
+        // -999 = cancelled. If it is the FIRST main-frame navigation being
+        // cancelled and nothing has been rendered yet, retry once — that
+        // covers the WKWebView cold-start hiccup where the first request is
+        // dropped before the process is fully ready. Any subsequent -999 is
+        // a legitimate supersede (a new navigation replaced this one) and
+        // must NOT be retried, otherwise back/forward and inline navigation
+        // start bouncing.
+        if (error.errorCode == -999) {
+          final mainFrame = error.isForMainFrame ?? true;
+          if (mainFrame &&
+              _firstMainLoadStarted &&
+              !_firstMainLoadRetried &&
+              _lastMainUrl != null) {
+            _firstMainLoadRetried = true;
+            _controller.loadRequest(Uri.parse(_lastMainUrl!));
+          }
+          return;
+        }
         final mainFrame = error.isForMainFrame ?? true;
         final lower = error.description.toLowerCase();
         final redirectLoop =
@@ -211,29 +249,51 @@ class _SpanPaneState extends State<SpanPane> with WidgetsBindingObserver {
         unawaited(_showOfflineAfterProbe());
       },
       onNavigationRequest: (request) {
-        final uri = Uri.tryParse(request.url);
-        if (uri == null) return NavigationDecision.prevent;
-        // Anything WKWebView can render in place stays inside the shell.
-        // `about:blank` in particular must stay: partner landings often
-        // hop through it in an iframe before committing to the real URL.
-        if (const <String>{
-          'http',
-          'https',
-          'about',
-          'data',
-          'blob',
-        }.contains(uri.scheme)) {
+        // Decide by the scheme extracted from the raw string, NOT from
+        // `Uri.parse()`. Dart's URI parser is stricter than WKWebView and
+        // rejects perfectly loadable redirects with unusual characters —
+        // returning `prevent` on those blanks the screen.
+        final scheme = LinkGate.schemeOf(request.url);
+        // Relative addresses, http, https, and the special in-shell schemes
+        // stay inside the WebView. `about:blank` in particular must stay:
+        // partner landings often hop through it before committing.
+        if (scheme.isEmpty ||
+            scheme == 'http' ||
+            scheme == 'https' ||
+            scheme == 'about' ||
+            scheme == 'data' ||
+            scheme == 'blob') {
           if (request.isMainFrame) _lastMainUrl = request.url;
           return NavigationDecision.navigate;
         }
+        if (scheme == 'javascript') return NavigationDecision.prevent;
         // Everything else — tel:, mailto:, sms:, whatsapp://, tg://,
         // viber://, fb-messenger://, weixin://, line://, snssdk://,
-        // itms-apps://, plus one-off partner schemes — is handed off
-        // to whichever app owns it. Scheme-gate, no host allowlist.
-        unawaited(launchUrl(uri, mode: LaunchMode.externalApplication));
+        // itms-apps://, plus one-off partner schemes — is handed off to
+        // whichever app owns it. url_launcher takes a full Uri, so parse
+        // here (after the scheme decision, so a parse failure can no
+        // longer blank the screen).
+        final uri = Uri.tryParse(request.url);
+        if (uri != null) {
+          unawaited(launchUrl(uri, mode: LaunchMode.externalApplication));
+        }
         return NavigationDecision.prevent;
       },
     );
+  }
+
+  Future<void> _reloadIfDocumentEmpty() async {
+    _emptyDocReloadIssued = true;
+    try {
+      final result = await _controller.runJavaScriptReturningResult(
+        'document.body ? document.body.innerHTML.trim().length : 0',
+      );
+      final asString = result.toString().replaceAll('"', '');
+      final length = int.tryParse(asString) ?? 0;
+      if (length == 0 && mounted) {
+        await _controller.reload();
+      }
+    } catch (_) {}
   }
 
   Future<void> _showOfflineAfterProbe() async {
@@ -373,7 +433,8 @@ class _SpanPaneState extends State<SpanPane> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _metricsDebounce?.cancel();
     _networkSubscription?.cancel();
-    widget.notifications.onDestination = null;
+    final token = _destinationToken;
+    if (token != null) widget.notifications.releaseOnDestination(token);
     unawaited(
       SystemChrome.setEnabledSystemUIMode(
         SystemUiMode.edgeToEdge,

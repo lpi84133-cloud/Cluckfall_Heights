@@ -1,82 +1,123 @@
 import 'dart:async';
 
 import 'package:cluckfall_heights/loft/config/loft_config.dart';
+import 'package:cluckfall_heights/loft/infra/link_gate.dart';
 import 'package:cluckfall_heights/loft/infra/loft_vault.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 @pragma('vm:entry-point')
 Future<void> loftBackgroundMessage(RemoteMessage _) async {}
 
+/// Firebase Messaging plumbing for the WebView route.
+///
+/// Push URL discipline:
+///   * a tap belongs only to the launch it was made in — nothing must leak
+///     into the next cold start;
+///   * the router (LoftGuide) drains the SceneDelegate slot as its first
+///     action and calls [markLaunchTapConsumed] once it has done so. From
+///     that point on, [warmupInitialTap] must be a no-op even though FCM
+///     still holds the same launch message in memory (double-open guard);
+///   * warm taps land in [onDestination] when a live WebView is registered,
+///     otherwise they queue via [LoftVault.stashPushUrl];
+///   * [onDestination] ownership uses identity so a SpanPane that has been
+///     replaced never clears a newer pane's callback on dispose.
 class BeamHub {
   BeamHub(this._vault, {required this.enabled});
 
   final LoftVault _vault;
   final bool enabled;
-  // Exposed so PermitDeck / LoadingScreen can await boot before asking
-  // permission — otherwise `_messaging` is null and the deck is skipped.
+
   bool get isReady => _messaging != null;
   FirebaseMessaging? _messaging;
   Future<void>? _bootFuture;
   Future<bool>? _permissionFuture;
   String? _token;
+  bool _launchTapConsumed = false;
+  bool _initialTapDrained = false;
 
   void Function(String url)? onDestination;
   void Function(String token)? onTokenChanged;
 
   String? get token => _token;
 
-  Future<void> boot() => _bootFuture ??= _boot();
+  /// Called by the router the moment it commits the SceneDelegate slot URL
+  /// to a `PortalSpan`. After this, [warmupInitialTap] and the FCM initial
+  /// message inside [boot] must not stash — those would double-open on the
+  /// next launch.
+  void markLaunchTapConsumed() {
+    _launchTapConsumed = true;
+    _initialTapDrained = true;
+  }
 
-  /// Fast, cheap path used by [LoftGuide] before it chooses a returning
-  /// destination. Reads Firebase's cached cold-start message (populated by
-  /// the iOS SDK from launchOptions), stashes any URL, and returns it. Does
-  /// NOT wait for APNs — that stays inside [boot].
-  ///
-  /// This closes the "cached start page beats fresh push URL" race: on a
-  /// returning-portal launch the SceneDelegate slot may still be empty at
-  /// the moment [TapPathReader.consume] finishes polling, but the FCM
-  /// launch-message is already sitting in-memory. Draining it here lets the
-  /// pilot prefer the push URL over [LoftVault.savedUrl].
-  Future<String?> consumeInitialTap() async {
-    if (!enabled) return null;
+  /// Registers an owner-scoped listener for warm push destinations. The
+  /// returned token must be passed to [releaseOnDestination] on dispose so
+  /// a stale widget cannot wipe a newer pane's callback.
+  Object registerOnDestination(void Function(String url) callback) {
+    onDestination = callback;
+    return callback;
+  }
+
+  /// Clears [onDestination] only if the caller still owns it (i.e. no other
+  /// SpanPane has replaced it in the meantime).
+  void releaseOnDestination(Object token) {
+    if (identical(onDestination, token)) {
+      onDestination = null;
+    }
+  }
+
+  /// Fast, side-effect-only drain of FCM's cached launch message into the
+  /// warm queue. No-op when the router already consumed the tap via the
+  /// SceneDelegate slot. Returns whether the queue was fed by this call.
+  Future<bool> warmupInitialTap() async {
+    if (!enabled) return false;
+    if (_launchTapConsumed || _initialTapDrained) return false;
+    _initialTapDrained = true;
     try {
       final messaging = FirebaseMessaging.instance;
-      _messaging = messaging;
+      _messaging ??= messaging;
       final initial = await messaging.getInitialMessage().timeout(
         const Duration(seconds: 3),
         onTimeout: () => null,
       );
-      if (initial == null) return null;
+      if (initial == null) return false;
       final url = _extract(initial.data);
-      if (url == null) return null;
-      await _vault.stashPushUrl(url);
-      return url;
+      if (url == null) return false;
+      final admitted = LinkGate.admit(url);
+      if (admitted == null) return false;
+      await _vault.stashPushUrl(admitted.toString());
+      return true;
     } catch (_) {
-      return null;
+      return false;
     }
   }
+
+  Future<void> boot() => _bootFuture ??= _boot();
 
   Future<void> _boot() async {
     if (!enabled) return;
     final messaging = FirebaseMessaging.instance;
     _messaging = messaging;
 
-    // Cold-start push tap redundancy: SceneDelegate is the primary path
-    // (writes UserDefaults synchronously from the OS callback), but Firebase
-    // also caches the tap in `getInitialMessage`. Stash it so nothing is lost
-    // if SceneDelegate ever misses the callback (e.g. delayed scene wiring).
-    // The pilot consumes the secure stash after ColdTapReader, so both slots
-    // are cleared and cannot resurrect a URL on a plain relaunch.
-    try {
-      final initial = await messaging.getInitialMessage().timeout(
-        const Duration(seconds: 4),
-        onTimeout: () => null,
-      );
-      if (initial != null) {
-        final url = _extract(initial.data);
-        if (url != null) await _vault.stashPushUrl(url);
-      }
-    } catch (_) {}
+    // Drain FCM's cached initial message. Feeds the warm queue only when the
+    // router has NOT already consumed the tap through the SceneDelegate
+    // slot — otherwise the same launch would open twice (once from the slot,
+    // once from FCM's copy of the same OS-delivered payload).
+    if (!_launchTapConsumed && !_initialTapDrained) {
+      _initialTapDrained = true;
+      try {
+        final initial = await messaging.getInitialMessage().timeout(
+          const Duration(seconds: 4),
+          onTimeout: () => null,
+        );
+        if (initial != null) {
+          final url = _extract(initial.data);
+          final admitted = url == null ? null : LinkGate.admit(url);
+          if (admitted != null) {
+            await _vault.stashPushUrl(admitted.toString());
+          }
+        }
+      } catch (_) {}
+    }
 
     try {
       FirebaseMessaging.onBackgroundMessage(loftBackgroundMessage);
@@ -92,25 +133,28 @@ class BeamHub {
     });
     FirebaseMessaging.onMessageOpenedApp.listen((message) async {
       final url = _extract(message.data);
-      if (url == null) return;
-      // Warm start: stash so a returning launch after the WebView is torn
-      // down still picks the URL up via [LoftVault.consumePushUrl]. If the
-      // WebView is already alive [onDestination] loads it in place.
-      await _vault.stashPushUrl(url);
-      onDestination?.call(url);
+      final admitted = url == null ? null : LinkGate.admit(url);
+      if (admitted == null) return;
+      final formatted = admitted.toString();
+      final callback = onDestination;
+      if (callback != null) {
+        // Live SpanPane will load it in place; do NOT stash. Stashing here
+        // would let a later returning launch pick the same URL up again.
+        callback(formatted);
+      } else {
+        await _vault.stashPushUrl(formatted);
+      }
     });
     await _waitForApns();
     _token = await messaging.getToken();
   }
 
+  /// Extraction order verbatim from the brief:
+  ///   flat: deep_link, target, url, deeplink, link
+  ///   then the same keys inside nested `payload` and `data`.
   String? _extract(Map<String, dynamic> payload) {
-    for (final key in const <String>[
-      'deep_link',
-      'target',
-      'url',
-      'deeplink',
-      'link',
-    ]) {
+    const keys = <String>['deep_link', 'target', 'url', 'deeplink', 'link'];
+    for (final key in keys) {
       final value = payload[key];
       if (value is String && value.trim().isNotEmpty) return value.trim();
     }

@@ -27,6 +27,35 @@ class BeamHub {
 
   Future<void> boot() => _bootFuture ??= _boot();
 
+  /// Fast, cheap path used by [LoftGuide] before it chooses a returning
+  /// destination. Reads Firebase's cached cold-start message (populated by
+  /// the iOS SDK from launchOptions), stashes any URL, and returns it. Does
+  /// NOT wait for APNs — that stays inside [boot].
+  ///
+  /// This closes the "cached start page beats fresh push URL" race: on a
+  /// returning-portal launch the SceneDelegate slot may still be empty at
+  /// the moment [TapPathReader.consume] finishes polling, but the FCM
+  /// launch-message is already sitting in-memory. Draining it here lets the
+  /// pilot prefer the push URL over [LoftVault.savedUrl].
+  Future<String?> consumeInitialTap() async {
+    if (!enabled) return null;
+    try {
+      final messaging = FirebaseMessaging.instance;
+      _messaging = messaging;
+      final initial = await messaging.getInitialMessage().timeout(
+        const Duration(seconds: 3),
+        onTimeout: () => null,
+      );
+      if (initial == null) return null;
+      final url = _extract(initial.data);
+      if (url == null) return null;
+      await _vault.stashPushUrl(url);
+      return url;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _boot() async {
     if (!enabled) return;
     final messaging = FirebaseMessaging.instance;

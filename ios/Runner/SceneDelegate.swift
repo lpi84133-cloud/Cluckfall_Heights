@@ -17,13 +17,15 @@ class SceneDelegate: FlutterSceneDelegate {
     willConnectTo session: UISceneSession,
     options connectionOptions: UIScene.ConnectionOptions
   ) {
+    // Persist BEFORE super so the write is committed to UserDefaults before
+    // the Flutter engine spins up and Dart hits TapPathReader.consume().
+    // Otherwise the poll (~400 ms) can race a slow synchronize() and return
+    // empty on a genuine cold-tap.
+    if let response = connectionOptions.notificationResponse {
+      Self.persistPush(from: response.notification.request.content.userInfo)
+    }
+
     super.scene(scene, willConnectTo: session, options: connectionOptions)
-
-    guard
-      let response = connectionOptions.notificationResponse
-    else { return }
-
-    Self.persistPush(from: response.notification.request.content.userInfo)
   }
 
   /// Push URL is trusted end-to-end — write without filtering. It might live

@@ -58,9 +58,22 @@ class LoftGuide {
 
     notifications.onTokenChanged = _refreshForToken;
 
-    // Cold-start push tap — trusted, unfiltered. Matches HenheavenDash:
-    // one key, no host allowlist, straight to portal.
-    final coldTap = await TapPathReader.consume();
+    // Cold-start push tap resolution runs in two passes because SceneDelegate
+    // and Firebase's launch-message plugin race each other on iOS:
+    //   1. `TapPathReader.consume()` polls the UserDefaults slot the native
+    //      SceneDelegate writes to. Fast when it wins, empty when the OS
+    //      routes the tap through FirebaseMessaging swizzling instead.
+    //   2. `notifications.consumeInitialTap()` drains FCM's cached launch
+    //      message. Non-null only on a real kill-launched-from-push run.
+    // Whichever wins, the URL goes straight to Portal and we do NOT fall
+    // back to `savedUrl()` — the pushed destination beats the cached start.
+    String? coldTap = await TapPathReader.consume();
+    if (coldTap == null || isAttributionLink(coldTap)) {
+      final fromFcm = await notifications.consumeInitialTap();
+      if (fromFcm != null && !isAttributionLink(fromFcm)) {
+        coldTap = fromFcm;
+      }
+    }
     if (coldTap != null && !isAttributionLink(coldTap)) {
       await vault.saveRoute(SpanRoute.portal);
       await vault.consumePushUrl();
@@ -155,11 +168,28 @@ class LoftGuide {
     if (!await probe.hasInterface()) {
       return const QuietSpan(returnToNative: false);
     }
-    final pending = await vault.consumePushUrl();
-    if (pending != null && pending.isNotEmpty) {
-      progress(1);
-      return PortalSpan(pending);
+
+    // Push URL wins over the cached start page. Order matters:
+    //   1. Warm/foreground stash written by [BeamHub.onMessageOpenedApp].
+    //   2. FCM launch-message (kill-tap that the SDK swizzled before the
+    //      SceneDelegate slot could commit).
+    // Only after both come up empty do we hand back the last known URL.
+    String? pending = await vault.consumePushUrl();
+    if (pending == null || pending.isEmpty) {
+      final fromFcm = await notifications.consumeInitialTap();
+      if (fromFcm != null && !isAttributionLink(fromFcm)) {
+        pending = fromFcm;
+        // Clear the stash [consumeInitialTap] just wrote so a subsequent
+        // returning launch does not resurrect the same URL.
+        await vault.consumePushUrl();
+      }
     }
+    if (pending != null && pending.isNotEmpty) {
+      await vault.saveRoute(SpanRoute.portal);
+      progress(1);
+      return PortalSpan(pending, coldLaunch: true);
+    }
+
     final cached = await vault.savedUrl();
     if (cached != null && !vault.cachedUrlExpired) {
       progress(1);

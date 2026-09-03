@@ -2,7 +2,7 @@ name: cluckfall_heights
 description: "Cluckfall Heights - plan vertical storage visually and check how stable it is, fully offline."
 publish_to: 'none'
 
-version: 1.0.3+9
+version: 1.0.3+10
 
 environment:
   sdk: ^3.12.2
@@ -45,7 +45,10 @@ dependencies:
   appsflyer_sdk: ^6.18.1
   app_tracking_transparency: ^2.0.6+1
   firebase_core: ^4.11.0
-  firebase_messaging: ^16.4.0
+  # 16.6.0 fixes the UIScene / getInitialMessage race that landed stale
+  # push URLs on the first cold-launch and replayed them on the next one
+  # (flutterfire#17991 / #18352).
+  firebase_messaging: ^16.6.0
   firebase_app_check: ^0.4.5
   # 7.1+ requires Xcode 26.1 for NWPath.isUltraConstrained.
   connectivity_plus: '>=7.0.0 <7.1.0'

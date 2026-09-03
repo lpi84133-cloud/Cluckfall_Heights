@@ -13,9 +13,9 @@ class TapPathReader {
   /// Scene-Manifest race: FlutterEngine can reach `consume()` before
   /// `scene:willConnectToSession:` has written the URL. One empty read is
   /// not proof that SceneDelegate will stay silent. Short poll closes that
-  /// window. See flutterfire#17991 / #18352.
-  static const int _passes = 9;
-  static const Duration _gap = Duration(milliseconds: 45);
+  /// window (8 × 50 ms = ~400 ms). See flutterfire#17991 / #18352.
+  static const int _passes = 8;
+  static const Duration _gap = Duration(milliseconds: 50);
 
   static Future<String?> consume() async {
     if (!Platform.isIOS) return null;

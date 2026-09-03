@@ -10,15 +10,20 @@ Future<void> loftBackgroundMessage(RemoteMessage _) async {}
 
 /// Firebase Messaging plumbing for the WebView route.
 ///
-/// Push URL discipline:
-///   * a tap belongs only to the launch it was made in — nothing must leak
-///     into the next cold start;
-///   * the router (LoftGuide) drains the SceneDelegate slot as its first
-///     action and calls [markLaunchTapConsumed] once it has done so. From
-///     that point on, [warmupInitialTap] must be a no-op even though FCM
-///     still holds the same launch message in memory (double-open guard);
-///   * warm taps land in [onDestination] when a live WebView is registered,
-///     otherwise they queue via [LoftVault.stashPushUrl];
+/// Push URL discipline (post fix for flutterfire#17991 / #18352):
+///   * cold-start push destination has EXACTLY ONE source of truth — the
+///     `flutter.cfh_cold_tap` slot written by `SceneDelegate` and drained
+///     by `TapPathReader`. FCM's `getInitialMessage()` is never used for
+///     routing because the iOS SDK could return the same message on the
+///     next cold launch (or a stale one after a silent wake);
+///   * `getInitialMessage()` IS still called exactly once per process for
+///     its side effect: the SDK marks the launch payload as read, so the
+///     next cold launch does not resurrect it. The returned message is
+///     discarded — see [_ackInitialMessage];
+///   * warm taps (app in background) land in [onDestination] when a live
+///     WebView is registered. If no callback is registered we drop the
+///     URL — writing it to persistent storage would make it re-open on
+///     the next unrelated launch;
 ///   * [onDestination] ownership uses identity so a SpanPane that has been
 ///     replaced never clears a newer pane's callback on dispose.
 class BeamHub {
@@ -30,10 +35,9 @@ class BeamHub {
   bool get isReady => _messaging != null;
   FirebaseMessaging? _messaging;
   Future<void>? _bootFuture;
+  Future<void>? _ackFuture;
   Future<bool>? _permissionFuture;
   String? _token;
-  bool _launchTapConsumed = false;
-  bool _initialTapDrained = false;
 
   void Function(String url)? onDestination;
   void Function(String token)? onTokenChanged;
@@ -41,13 +45,10 @@ class BeamHub {
   String? get token => _token;
 
   /// Called by the router the moment it commits the SceneDelegate slot URL
-  /// to a `PortalSpan`. After this, [warmupInitialTap] and the FCM initial
-  /// message inside [boot] must not stash — those would double-open on the
-  /// next launch.
-  void markLaunchTapConsumed() {
-    _launchTapConsumed = true;
-    _initialTapDrained = true;
-  }
+  /// to a `PortalSpan`. Kept for backwards compatibility with call sites —
+  /// no longer gates any FCM code path because the initial message is only
+  /// consumed for its side effect (ack), never for routing.
+  void markLaunchTapConsumed() {}
 
   /// Registers an owner-scoped listener for warm push destinations. The
   /// returned token must be passed to [releaseOnDestination] on dispose so
@@ -65,30 +66,15 @@ class BeamHub {
     }
   }
 
-  /// Fast, side-effect-only drain of FCM's cached launch message into the
-  /// warm queue. No-op when the router already consumed the tap via the
-  /// SceneDelegate slot. Returns whether the queue was fed by this call.
+  /// Kept for existing call sites in [LoftGuide]. Always resolves `false`:
+  /// the returning-portal path used to stash the initial message into the
+  /// warm queue, which is exactly what caused the "cold-launch replays the
+  /// same push" bug. The single legitimate consumer of the initial message
+  /// is [_ackInitialMessage], which discards it.
   Future<bool> warmupInitialTap() async {
     if (!enabled) return false;
-    if (_launchTapConsumed || _initialTapDrained) return false;
-    _initialTapDrained = true;
-    try {
-      final messaging = FirebaseMessaging.instance;
-      _messaging ??= messaging;
-      final initial = await messaging.getInitialMessage().timeout(
-        const Duration(seconds: 3),
-        onTimeout: () => null,
-      );
-      if (initial == null) return false;
-      final url = _extract(initial.data);
-      if (url == null) return false;
-      final admitted = LinkGate.admit(url);
-      if (admitted == null) return false;
-      await _vault.stashPushUrl(admitted.toString());
-      return true;
-    } catch (_) {
-      return false;
-    }
+    await _ackInitialMessage();
+    return false;
   }
 
   Future<void> boot() => _bootFuture ??= _boot();
@@ -98,26 +84,11 @@ class BeamHub {
     final messaging = FirebaseMessaging.instance;
     _messaging = messaging;
 
-    // Drain FCM's cached initial message. Feeds the warm queue only when the
-    // router has NOT already consumed the tap through the SceneDelegate
-    // slot — otherwise the same launch would open twice (once from the slot,
-    // once from FCM's copy of the same OS-delivered payload).
-    if (!_launchTapConsumed && !_initialTapDrained) {
-      _initialTapDrained = true;
-      try {
-        final initial = await messaging.getInitialMessage().timeout(
-          const Duration(seconds: 4),
-          onTimeout: () => null,
-        );
-        if (initial != null) {
-          final url = _extract(initial.data);
-          final admitted = url == null ? null : LinkGate.admit(url);
-          if (admitted != null) {
-            await _vault.stashPushUrl(admitted.toString());
-          }
-        }
-      } catch (_) {}
-    }
+    // Fire-and-forget acknowledgement of FCM's cached launch message so the
+    // next cold launch does not receive the same payload again. The value
+    // is intentionally discarded — routing is owned by the SceneDelegate
+    // slot via TapPathReader.
+    unawaited(_ackInitialMessage());
 
     try {
       FirebaseMessaging.onBackgroundMessage(loftBackgroundMessage);
@@ -131,22 +102,35 @@ class BeamHub {
       _token = value;
       onTokenChanged?.call(value);
     });
-    FirebaseMessaging.onMessageOpenedApp.listen((message) async {
+    FirebaseMessaging.onMessageOpenedApp.listen((message) {
+      // Warm tap only: app already alive, a live SpanPane is expected. If
+      // no callback is registered we drop the URL rather than persisting
+      // it — otherwise the next unrelated cold launch would replay it and
+      // open the "special" screen for a user who never asked for it.
       final url = _extract(message.data);
       final admitted = url == null ? null : LinkGate.admit(url);
       if (admitted == null) return;
-      final formatted = admitted.toString();
-      final callback = onDestination;
-      if (callback != null) {
-        // Live SpanPane will load it in place; do NOT stash. Stashing here
-        // would let a later returning launch pick the same URL up again.
-        callback(formatted);
-      } else {
-        await _vault.stashPushUrl(formatted);
-      }
+      onDestination?.call(admitted.toString());
     });
     await _waitForApns();
     _token = await messaging.getToken();
+  }
+
+  /// Calls [FirebaseMessaging.getInitialMessage] exactly once per process
+  /// and discards the result. The call is what makes the SDK forget the
+  /// launch payload; without it, iOS caches the message across cold starts
+  /// and the second launch (with no fresh tap) re-opens the same URL.
+  Future<void> _ackInitialMessage() {
+    return _ackFuture ??= (() async {
+      try {
+        final messaging = _messaging ?? FirebaseMessaging.instance;
+        _messaging ??= messaging;
+        await messaging.getInitialMessage().timeout(
+          const Duration(seconds: 3),
+          onTimeout: () => null,
+        );
+      } catch (_) {}
+    })();
   }
 
   /// Extraction order verbatim from the brief:

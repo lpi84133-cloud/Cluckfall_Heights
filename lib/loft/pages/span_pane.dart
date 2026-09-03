@@ -284,16 +284,23 @@ class _SpanPaneState extends State<SpanPane> with WidgetsBindingObserver {
 
   Future<void> _reloadIfDocumentEmpty() async {
     _emptyDocReloadIssued = true;
+    final Object? measured;
     try {
-      final result = await _controller.runJavaScriptReturningResult(
-        'document.body ? document.body.innerHTML.trim().length : 0',
+      measured = await _controller.runJavaScriptReturningResult(
+        'document.body ? document.body.scrollHeight : 0',
       );
-      final asString = result.toString().replaceAll('"', '');
-      final length = int.tryParse(asString) ?? 0;
-      if (length == 0 && mounted) {
-        await _controller.reload();
-      }
-    } catch (_) {}
+    } catch (_) {
+      return;
+    }
+    // Parse failure → treat as non-empty. A one-shot push URL is consumed
+    // on the first GET; a false-empty reload lands on the partner start page.
+    final height = switch (measured) {
+      num value => value.toDouble(),
+      String value => double.tryParse(value) ?? 1,
+      _ => 1,
+    };
+    if (height > 0 || !mounted) return;
+    await _controller.reload();
   }
 
   Future<void> _showOfflineAfterProbe() async {

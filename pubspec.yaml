@@ -2,7 +2,7 @@ name: cluckfall_heights
 description: "Cluckfall Heights - plan vertical storage visually and check how stable it is, fully offline."
 publish_to: 'none'
 
-version: 1.0.3+8
+version: 1.0.3+9
 
 environment:
   sdk: ^3.12.2

@@ -45,27 +45,41 @@ class SceneDelegate: FlutterSceneDelegate {
   private static func extractUrl(
     from payload: [AnyHashable: Any]
   ) -> String? {
-    let candidates = ["url", "link", "target", "deeplink", "deep_link"]
+    // Same priority as BeamHub._extract: offer lives in `deep_link`,
+    // while `url` is often the partner landing / start page. Taking
+    // `url` first opens the wrong page on a fresh test-site push.
+    let candidates = ["deep_link", "target", "url", "deeplink", "link"]
 
-    func firstValue(in dictionary: [AnyHashable: Any]) -> String? {
-      for candidate in candidates {
-        guard let value = dictionary[candidate] as? String else { continue }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty { return trimmed }
-      }
-      return nil
-    }
-
-    if let direct = firstValue(in: payload) { return direct }
-    if let aps = payload["aps"] as? [AnyHashable: Any],
-       let value = firstValue(in: aps) {
-      return value
+    if let direct = webLink(in: payload, candidates: candidates) {
+      return direct
     }
     for container in ["payload", "data"] {
-      if let nested = payload[container] as? [AnyHashable: Any],
-         let value = firstValue(in: nested) {
-        return value
+      guard let nested = payload[container] as? [AnyHashable: Any] else {
+        continue
       }
+      if let found = webLink(in: nested, candidates: candidates) {
+        return found
+      }
+    }
+    return nil
+  }
+
+  /// Skip non-http values and keep walking the candidate list. A bare
+  /// string in `url` must not beat a real `deep_link` offer.
+  private static func webLink(
+    in fields: [AnyHashable: Any],
+    candidates: [String]
+  ) -> String? {
+    for candidate in candidates {
+      guard let raw = fields[candidate] as? String else { continue }
+      let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard
+        let parsed = URL(string: trimmed),
+        let scheme = parsed.scheme?.lowercased(),
+        scheme == "https" || scheme == "http",
+        parsed.host?.isEmpty == false
+      else { continue }
+      return trimmed
     }
     return nil
   }

@@ -66,10 +66,11 @@ class LoftGuide {
     // config, prior route. The router marks the tap consumed so FCM's copy
     // of the same launch message does not later stash it into the queue and
     // resurrect it on the NEXT launch.
-    final coldTapRaw = await TapPathReader.consume();
-    final coldTap = coldTapRaw == null || isAttributionLink(coldTapRaw)
-        ? null
-        : LinkGate.admit(coldTapRaw);
+    // Push is a trusted destination from the backend — never run the
+    // OneLink / brand-host filter here. That filter is for tap / Universal
+    // Links only. Dropping a push URL falls through to the cached config
+    // landing and opens the test-site start page.
+    final coldTap = LinkGate.admit(await TapPathReader.consume());
     if (coldTap != null) {
       await vault.saveRoute(SpanRoute.portal);
       notifications.markLaunchTapConsumed();
@@ -178,7 +179,7 @@ class LoftGuide {
     //     never got as far as [warmupInitialTap].
     await notifications.warmupInitialTap();
     final queued = LinkGate.admit(await vault.consumePushUrl());
-    if (queued != null && !isAttributionLink(queued.toString())) {
+    if (queued != null) {
       await vault.saveRoute(SpanRoute.portal);
       notifications.markLaunchTapConsumed();
       progress(1);

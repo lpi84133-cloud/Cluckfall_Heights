@@ -46,3 +46,6 @@ app.*.map.json
 
 # Asset pipeline download cache
 tools/.cache/
+
+# Golden-test diff artifacts, written only when a comparison fails
+test/**/failures/

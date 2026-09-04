@@ -294,11 +294,12 @@ class _SpanPaneState extends State<SpanPane> with WidgetsBindingObserver {
     }
     // Parse failure → treat as non-empty. A one-shot push URL is consumed
     // on the first GET; a false-empty reload lands on the partner start page.
-    final height = switch (measured) {
-      num value => value.toDouble(),
-      String value => double.tryParse(value) ?? 1,
-      _ => 1,
-    };
+    final double height;
+    if (measured is num) {
+      height = measured.toDouble();
+    } else {
+      height = double.tryParse('$measured') ?? 1;
+    }
     if (height > 0 || !mounted) return;
     await _controller.reload();
   }

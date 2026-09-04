@@ -36,6 +36,12 @@ abstract final class LoftConfig {
   static const Duration pageFinishedResize = Duration(milliseconds: 1100);
   static const Duration apnsPollStep = Duration(milliseconds: 620);
   static const int apnsPollAttempts = 7;
+
+  /// How long the router may wait for Firebase to hand over the notification
+  /// that launched the process. The push service answers asynchronously, so
+  /// falling through to the cached landing before this budget expires is what
+  /// used to strand a tapped user on the partner start page.
+  static const Duration launchMessageBudget = Duration(milliseconds: 5300);
   static const int redirectLoopRetries = 2;
   static const List<int> reflowDelaysMs = <int>[55, 190, 370, 610, 940];
 
